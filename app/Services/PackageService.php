@@ -31,6 +31,57 @@ class PackageService
     }
 
     /**
+     * Verifica se um comando existe no sistema
+     */
+    public function commandExists(string $command): bool
+    {
+        return Process::run("command -v $command")->successful();
+    }
+
+    /**
+     * Roda o cachy-update (instala se não existir)
+     */
+    public function runCachyUpdate(): bool
+    {
+        $terminals = ['konsole', 'alacritty', 'kitty', 'foot', 'gnome-terminal', 'xterm'];
+        $foundTerminal = null;
+
+        foreach ($terminals as $term) {
+            if ($this->commandExists($term)) {
+                $foundTerminal = $term;
+                break;
+            }
+        }
+
+        if ($foundTerminal) {
+            $helper = $this->getHelper();
+            $artisan = base_path('artisan');
+            $php = PHP_BINARY;
+            $callback = "{$php} {$artisan} package:finished 'System Update'";
+
+            // Script inteligente para o terminal
+            $script = "if command -v cachy-update > /dev/null; then " .
+                      "  echo 'Starting CachyOS Update...'; cachy-update; " .
+                      "else " .
+                      "  echo 'cachy-update not found. Installing via {$helper}...'; " .
+                      "  SUDO=pkexec {$helper} --skipreview --noconfirm -S cachy-update && cachy-update; " .
+                      "fi; " .
+                      "$callback";
+
+            $terminalCmd = match ($foundTerminal) {
+                'konsole' => "konsole -e bash -c \"$script; sleep 5\"",
+                'gnome-terminal' => "gnome-terminal -- bash -c \"$script; sleep 5\"",
+                default => "$foundTerminal -e bash -c \"$script; sleep 5\""
+            };
+
+            shell_exec($terminalCmd . " > /dev/null 2>&1 &");
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
      * Busca pacotes usando o melhor helper disponível
      */
     public function search(string $query): array
@@ -133,7 +184,6 @@ class PackageService
                 $innerCommand = "yay --noedit --noconfirm -S " . escapeshellarg($packageName);
             }
 
-            // Caminhos absolutos para o PHP e Artisan do projeto
             $artisan = base_path('artisan');
             $php = PHP_BINARY;
             $callbackCmd = "{$php} {$artisan} package:finished " . escapeshellarg($packageName);
@@ -142,7 +192,7 @@ class PackageService
             $foundTerminal = null;
 
             foreach ($terminals as $term) {
-                if (Process::run("command -v $term")->successful()) {
+                if ($this->commandExists($term)) {
                     $foundTerminal = $term;
                     break;
                 }

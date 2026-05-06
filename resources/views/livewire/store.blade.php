@@ -43,6 +43,13 @@ new class extends Component
         $this->checkPendingInstallations();
     }
 
+    public function runSystemUpdate()
+    {
+        $service = new PackageService();
+        $service->runCachyUpdate();
+        $this->showNotification("System Update", "Running update process in terminal...");
+    }
+
     public function checkPendingInstallations()
     {
         foreach ($this->pendingInstallations as $key => $name) {
@@ -370,6 +377,14 @@ new class extends Component
                     <span>Installed</span>
                 </button>
                 <button 
+                    wire:click="runSystemUpdate"
+                    class="w-full flex items-center gap-4 px-4 py-3 rounded-md text-[15px] transition-all text-muted-foreground hover:bg-cachy/10 hover:text-cachy"
+                >
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                    <span>Update System</span>
+                </button>
+
+                <button 
                     wire:click="setTab('settings')"
                     class="w-full flex items-center gap-4 px-4 py-3 rounded-md text-[15px] transition-all {{ $tab === 'settings' ? 'bg-accent text-accent-foreground font-bold' : 'text-muted-foreground hover:bg-accent/40 hover:text-foreground' }}"
                 >
@@ -402,7 +417,7 @@ new class extends Component
             
             <div class="pt-4 border-t border-border/50">
                 <button wire:click="setTab('settings')" class="text-[10px] font-black uppercase text-muted-foreground hover:text-cachy transition-colors tracking-widest leading-none">
-                    v1.0.0 | Made by Panda 🐼
+                    v1.0.1 | Made by Panda 🐼
                 </button>
             </div>
         </div>
