@@ -23,21 +23,29 @@ A modern, high-performance, and beautiful community-driven store for **CachyOS**
 
 ---
 
-## 🛠️ Installation
+## 📦 Installation
 
-### Prerequisites
+### Recommended: Arch User Repository (AUR)
 
-- **CachyOS** (or any Arch-based Linux distribution)
-- **PHP 8.2+**
-- **Composer**
-- **Node.js & NPM**
-- **yay** (for AUR support)
+If you are using **CachyOS** or **Arch Linux**, the easiest way to install is via AUR. You can use any AUR helper like `paru` or `yay`:
 
-### Setup
+```bash
+paru -S cachyos-store-bin
+```
+*or*
+```bash
+yay -S cachyos-store-bin
+```
+
+---
+
+### Development Setup
+
+If you want to contribute or run the latest development version:
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/your-username/panda-cachy-store.git
+   git clone https://github.com/satodu/panda-cachy-store.git
    cd panda-cachy-store
    ```
 
