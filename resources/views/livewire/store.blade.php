@@ -4,6 +4,7 @@ use Livewire\Volt\Component;
 use App\Services\PackageService;
 use App\Services\AppImageService;
 use Native\Laravel\Facades\Notification;
+use Native\Laravel\Facades\Alert;
 use Native\Laravel\Dialog;
 use Illuminate\Support\Facades\Storage;
 
@@ -19,6 +20,8 @@ new class extends Component
     public $sortBy = 'relevance'; 
     public $toast = ['show' => false, 'message' => '', 'type' => 'success'];
     public $pendingInstallations = []; 
+    public $confirmingAppImageDeletion = null; 
+    public $confirmingPackageRemoval = null; 
     
     // Paginação
     public $page = 1;
@@ -64,7 +67,18 @@ new class extends Component
         foreach ($this->pendingInstallations as $key => $name) {
             if (!\Illuminate\Support\Facades\Cache::has("installing_{$name}")) {
                 unset($this->pendingInstallations[$key]);
-                $this->loadData(); // Refresh list when one finishes
+                
+                // Força a limpeza do cache de busca antes de recarregar
+                $service = new PackageService();
+                $service->clearCache();
+                
+                $this->loadData();
+                $this->showNotification("Concluído", "Operação com {$name} finalizada.");
+
+                // Fecha detalhes e modais automaticamente ao finalizar
+                $this->selectedPackage = null;
+                $this->confirmingAppImageDeletion = null;
+                $this->confirmingPackageRemoval = null;
             }
         }
     }
@@ -161,10 +175,8 @@ new class extends Component
     protected function updateInstallationStatus()
     {
         $service = new PackageService();
-        $installedNames = \Illuminate\Support\Facades\Cache::remember('installed_names_quick', 2, function() {
-            $res = \Illuminate\Support\Facades\Process::run("pacman -Qq");
-            return $res->successful() ? explode("\n", trim($res->output())) : [];
-        });
+        $res = \Illuminate\Support\Facades\Process::run("pacman -Qq");
+        $installedNames = $res->successful() ? explode("\n", trim($res->output())) : [];
 
         foreach ($this->packages as &$pkg) {
             $pkg['installed'] = in_array($pkg['name'], $installedNames);
@@ -240,6 +252,9 @@ new class extends Component
             }
             return $data;
         });
+
+        // Garante que o status de instalado esteja sempre certo mesmo se vier do cache
+        $this->updateInstallationStatus();
     }
 
     public function loadInstalled()
@@ -323,17 +338,31 @@ new class extends Component
 
     public function remove($name)
     {
+        $this->confirmingPackageRemoval = $name;
+    }
+
+    public function cancelPackageRemoval()
+    {
+        $this->confirmingPackageRemoval = null;
+    }
+
+    public function deletePackageConfirmed()
+    {
+        $name = $this->confirmingPackageRemoval;
+        if (!$name) return;
+
         $service = new PackageService();
         $success = $service->remove($name);
         
         if ($success) {
-            $this->showNotification("Removed", "$name was uninstalled.");
-            Notification::new()
-                ->title('CachyOS Store')
-                ->message("$name uninstalled.")
-                ->show();
+            $this->pendingInstallations[] = $name;
+            $this->showNotification("Removing", "Uninstalling $name in terminal...");
+        } else {
+            $this->showNotification("Error", "Failed to remove $name.", 'error');
         }
 
+        // Limpa o estado APÓS a execução
+        $this->confirmingPackageRemoval = null;
         $this->loadData();
     }
 
@@ -403,6 +432,19 @@ new class extends Component
 
     public function removeAppImage($path)
     {
+        $this->confirmingAppImageDeletion = $path;
+    }
+
+    public function cancelAppImageDeletion()
+    {
+        $this->confirmingAppImageDeletion = null;
+    }
+
+    public function deleteAppImageConfirmed()
+    {
+        $path = $this->confirmingAppImageDeletion;
+        $this->confirmingAppImageDeletion = null;
+
         $service = new AppImageService();
         if ($service->removeAppImage($path)) {
             $this->showNotification("Removed", "AppImage and menu entry removed.");
@@ -423,7 +465,7 @@ new class extends Component
     class="flex h-screen bg-background text-foreground overflow-hidden relative font-sans" 
     x-data="{ show: @entangle('toast.show') }" 
     x-init="$watch('show', value => { if(value) setTimeout(() => $wire.hideToast(), 4000) })"
-    @if(count($pendingInstallations) > 0) wire:poll.3s="checkPendingInstallations" @endif
+    @if(count($pendingInstallations) > 0) wire:poll.2s="checkPendingInstallations" @endif
 >
     
     <!-- Toast Notification -->
@@ -539,5 +581,57 @@ new class extends Component
     <!-- Details Overlay -->
     @if($selectedPackage)
         <x-store.details-overlay :$selectedPackage />
+    @endif
+
+    <!-- Custom Confirmation Modal for AppImages -->
+    @if($confirmingAppImageDeletion)
+        <div class="fixed inset-0 z-[10001] flex items-center justify-center p-6 bg-background/80 backdrop-blur-sm animate-in fade-in duration-200">
+            <div class="bg-card border border-border w-full max-w-md rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+                <div class="p-8">
+                    <div class="w-16 h-16 bg-destructive/10 text-destructive rounded-2xl flex items-center justify-center mb-6">
+                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                        </svg>
+                    </div>
+                    
+                    <h3 class="text-2xl font-black tracking-tight mb-3">Remove AppImage?</h3>
+                    <p class="text-muted-foreground leading-relaxed">
+                        Are you sure you want to delete <span class="text-foreground font-bold">{{ basename($confirmingAppImageDeletion) }}</span>? 
+                        This will remove the file from your disk and delete its menu entry.
+                    </p>
+                </div>
+                
+                <div class="p-6 bg-muted/30 flex items-center gap-3">
+                    <button wire:click="cancelAppImageDeletion" class="flex-1 h-12 text-sm font-bold rounded-xl hover:bg-accent transition-colors">Keep it</button>
+                    <button wire:click="deleteAppImageConfirmed" class="flex-1 h-12 bg-destructive text-destructive-foreground text-sm font-black rounded-xl hover:bg-destructive/90 shadow-lg shadow-destructive/20 transition-all">Delete Now</button>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    <!-- Custom Confirmation Modal for System Packages -->
+    @if($confirmingPackageRemoval)
+        <div class="fixed inset-0 z-[10001] flex items-center justify-center p-6 bg-background/80 backdrop-blur-sm animate-in fade-in duration-200">
+            <div class="bg-card border border-border w-full max-w-md rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+                <div class="p-8">
+                    <div class="w-16 h-16 bg-destructive/10 text-destructive rounded-2xl flex items-center justify-center mb-6">
+                        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                        </svg>
+                    </div>
+                    
+                    <h3 class="text-2xl font-black tracking-tight mb-3">Uninstall Package?</h3>
+                    <p class="text-muted-foreground leading-relaxed">
+                        Are you sure you want to uninstall <span class="text-foreground font-bold">{{ $confirmingPackageRemoval }}</span>? 
+                        This will remove the package and its dependencies from your system.
+                    </p>
+                </div>
+                
+                <div class="p-6 bg-muted/30 flex items-center gap-3">
+                    <button wire:click="cancelPackageRemoval" class="flex-1 h-12 text-sm font-bold rounded-xl hover:bg-accent transition-colors">Cancel</button>
+                    <button wire:click="deletePackageConfirmed" class="flex-1 h-12 bg-destructive text-destructive-foreground text-sm font-black rounded-xl hover:bg-destructive/90 shadow-lg shadow-destructive/20 transition-all">Uninstall</button>
+                </div>
+            </div>
+        </div>
     @endif
 </div>

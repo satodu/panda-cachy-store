@@ -212,20 +212,31 @@ class PackageService
 
         $artisan = base_path('artisan');
         $php = PHP_BINARY;
-        $command = "pkexec pacman -S --noconfirm " . escapeshellarg($packageName);
-        
-        try {
-            $result = Process::timeout(300)->run($command);
-            if ($result->successful()) {
-                Process::run("{$php} {$artisan} package:finished " . escapeshellarg($packageName));
-                return true;
+        $innerCommand = "sudo pacman -S --noconfirm " . escapeshellarg($packageName);
+        $callbackCmd = "{$php} {$artisan} package:finished " . escapeshellarg($packageName);
+
+        $terminals = ['konsole', 'alacritty', 'kitty', 'foot', 'gnome-terminal', 'xterm', 'footclient'];
+        $foundTerminal = null;
+
+        foreach ($terminals as $term) {
+            if ($this->commandExists($term)) {
+                $foundTerminal = $term;
+                break;
             }
-            Cache::forget("installing_{$packageName}");
-            return false;
-        } catch (\Exception $e) {
-            Cache::forget("installing_{$packageName}");
-            return false;
         }
+
+        if ($foundTerminal) {
+            $terminalCmd = match ($foundTerminal) {
+                'konsole' => "konsole -e bash -c \"$innerCommand; $callbackCmd; sleep 5\"",
+                'gnome-terminal' => "gnome-terminal -- bash -c \"$innerCommand; $callbackCmd; sleep 5\"",
+                default => "$foundTerminal -e bash -c \"$innerCommand; $callbackCmd; sleep 5\""
+            };
+
+            shell_exec($terminalCmd . " > /dev/null 2>&1 &");
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -233,16 +244,36 @@ class PackageService
      */
     public function remove(string $packageName): bool
     {
-        try {
-            $result = Process::timeout(300)->run("pkexec pacman -Rns --noconfirm " . escapeshellarg($packageName));
-            if ($result->successful()) {
-                $this->clearCache();
-                return true;
+        $artisan = base_path('artisan');
+        $php = PHP_BINARY;
+        $innerCommand = "sudo pacman -Rns --noconfirm " . escapeshellarg($packageName);
+        $callbackCmd = "{$php} {$artisan} package:finished " . escapeshellarg($packageName) . " uninstalled";
+
+        Cache::put("installing_{$packageName}", true, 600);
+        
+        $terminals = ['konsole', 'alacritty', 'kitty', 'foot', 'gnome-terminal', 'xterm', 'footclient'];
+        $foundTerminal = null;
+
+        foreach ($terminals as $term) {
+            if ($this->commandExists($term)) {
+                $foundTerminal = $term;
+                break;
             }
-            return false;
-        } catch (\Exception $e) {
-            return false;
         }
+
+        if ($foundTerminal) {
+            $terminalCmd = match ($foundTerminal) {
+                'konsole' => "konsole -e bash -c \"$innerCommand; $callbackCmd; sleep 5\"",
+                'gnome-terminal' => "gnome-terminal -- bash -c \"$innerCommand; $callbackCmd; sleep 5\"",
+                default => "$foundTerminal -e bash -c \"$innerCommand; $callbackCmd; sleep 5\""
+            };
+
+            shell_exec($terminalCmd . " > /dev/null 2>&1 &");
+            $this->clearCache();
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -250,7 +281,8 @@ class PackageService
      */
     public function clearCache()
     {
-        Cache::flush();
+        // Não limpamos tudo para não travar a Home
+        \Illuminate\Support\Facades\Cache::forget("pkg_installed_list");
     }
 
     /**

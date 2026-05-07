@@ -74,7 +74,7 @@
         
         <div class="pt-4">
             <button wire:click="setTab('settings')" class="text-[10px] font-black uppercase text-muted-foreground hover:text-cachy transition-colors tracking-widest leading-none">
-                v1.0.3 | Made by Panda 🐼
+                v1.1.0 | Made by Panda 🐼
             </button>
         </div>
     </div>

@@ -40,7 +40,7 @@
                     
                     <div class="mt-auto flex items-center gap-3 pt-6">
                         <button 
-                            wire:click="launchAppImage('{{ $app['path'] }}')"
+                            wire:click="launchAppImage('{{ addslashes($app['path']) }}')"
                             class="flex-1 h-10 bg-accent hover:bg-accent/80 text-accent-foreground text-[11px] font-black rounded transition-all uppercase tracking-widest"
                         >
                             Launch
@@ -48,7 +48,7 @@
                         
                         @if(!$app['has_desktop'])
                             <button 
-                                wire:click="registerAppImage('{{ $app['path'] }}')"
+                                wire:click="registerAppImage('{{ addslashes($app['path']) }}')"
                                 class="flex-1 h-10 bg-cachy hover:bg-cachy/90 text-white text-[11px] font-black rounded transition-all uppercase tracking-widest shadow-md"
                             >
                                 Integrate
@@ -56,8 +56,7 @@
                         @endif
 
                         <button 
-                            wire:click="removeAppImage('{{ $app['path'] }}')"
-                            wire:confirm="Are you sure you want to remove this AppImage? This will delete the file and its menu entry."
+                            wire:click="removeAppImage('{{ addslashes($app['path']) }}')"
                             class="h-10 w-10 bg-destructive/10 rounded flex items-center justify-center text-destructive hover:bg-destructive hover:text-white transition-colors"
                         >
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>

@@ -21,30 +21,39 @@ class AppImageService
      */
     public function listAppImages(string $directory): array
     {
-        if (!File::exists($directory)) {
-            File::makeDirectory($directory, 0755, true);
-        }
+        try {
+            if (empty($directory)) return [];
 
-        $files = File::files($directory);
-        $appImages = [];
-
-        foreach ($files as $file) {
-            $extension = $file->getExtension();
-            if (in_array(strtolower($extension), ['appimage'])) {
-                $name = $file->getFilename();
-                $path = $file->getRealPath();
-                
-                $appImages[] = [
-                    'name' => $name,
-                    'path' => $path,
-                    'size' => $this->formatBytes($file->getSize()),
-                    'has_desktop' => $this->hasDesktopEntry($name),
-                    'icon_url' => $this->getIconUrl($name),
-                ];
+            if (!File::exists($directory)) {
+                File::makeDirectory($directory, 0755, true);
             }
-        }
 
-        return $appImages;
+            $files = File::files($directory);
+            $appImages = [];
+
+            foreach ($files as $file) {
+                $extension = $file->getExtension();
+                if (in_array(strtolower($extension), ['appimage'])) {
+                    $name = $file->getFilename();
+                    $path = $file->getRealPath();
+                    
+                    if (!$path) continue;
+                    
+                    $appImages[] = [
+                        'name' => $name,
+                        'path' => $path,
+                        'size' => $this->formatBytes($file->getSize()),
+                        'has_desktop' => $this->hasDesktopEntry($name),
+                        'icon_url' => $this->getIconUrl($name),
+                    ];
+                }
+            }
+
+            return $appImages;
+        } catch (\Exception $e) {
+            Log::error("Failed to list AppImages: " . $e->getMessage());
+            return [];
+        }
     }
 
     /**
@@ -53,12 +62,17 @@ class AppImageService
     public function getIconUrl(string $fileName): ?string
     {
         $id = md5($fileName);
-        $path = getenv('HOME') . '/.local/share/icons/appimage-' . $id . '.png';
+        $iconDir = getenv('HOME') . '/.local/share/icons';
         
-        if (File::exists($path)) {
-            $data = File::get($path);
-            $base64 = base64_encode($data);
-            return "data:image/png;base64,{$base64}";
+        $extensions = ['png', 'svg', 'jpg', 'jpeg'];
+        foreach ($extensions as $ext) {
+            $path = $iconDir . '/appimage-' . $id . '.' . $ext;
+            if (File::exists($path)) {
+                $data = File::get($path);
+                $base64 = base64_encode($data);
+                $mime = $ext === 'svg' ? 'image/svg+xml' : 'image/' . $ext;
+                return "data:{$mime};base64,{$base64}";
+            }
         }
         return null;
     }
@@ -68,7 +82,11 @@ class AppImageService
      */
     public function hasDesktopEntry(string $fileName): bool
     {
-        $desktopPath = getenv('HOME') . '/.local/share/applications/appimage-' . md5($fileName) . '.desktop';
+        if (empty($fileName)) return false;
+        $home = getenv('HOME');
+        if (!$home) return false;
+        
+        $desktopPath = $home . '/.local/share/applications/appimage-' . md5($fileName) . '.desktop';
         return File::exists($desktopPath);
     }
 
@@ -131,12 +149,15 @@ class AppImageService
             File::makeDirectory($iconDir, 0755, true);
         }
 
-        $targetIconPath = $iconDir . '/appimage-' . $id . '.png';
-        
-        // If already exists, return it
-        if (File::exists($targetIconPath)) return $targetIconPath;
+        // If already exists (any format), return it
+        $extensions = ['png', 'svg', 'jpg', 'jpeg'];
+        foreach ($extensions as $ext) {
+            $path = $iconDir . '/appimage-' . $id . '.' . $ext;
+            if (File::exists($path)) return $path;
+        }
 
         $tempDir = storage_path('app/temp_icon_' . $id);
+        if (empty($tempDir)) return null;
         if (File::exists($tempDir)) File::deleteDirectory($tempDir);
         File::makeDirectory($tempDir, 0755, true);
         
@@ -150,12 +171,15 @@ class AppImageService
 
             $extracted = $tempDir . '/squashfs-root/.DirIcon';
             if (File::exists($extracted)) {
-                // Use cp -L to follow symlinks if .DirIcon is a link
-                shell_exec("cp -L " . escapeshellarg($extracted) . " " . escapeshellarg($targetIconPath));
+                // Determine actual type of .DirIcon (could be a symlink to anything)
+                $realExt = 'png'; // default
+                $targetPath = $iconDir . '/appimage-' . $id . '.' . $realExt;
                 
-                if (File::exists($targetIconPath)) {
+                shell_exec("cp -L " . escapeshellarg($extracted) . " " . escapeshellarg($targetPath));
+                
+                if (File::exists($targetPath)) {
                     File::deleteDirectory($tempDir);
-                    return $targetIconPath;
+                    return $targetPath;
                 }
             }
 
@@ -163,12 +187,19 @@ class AppImageService
             $command = "cd " . escapeshellarg($tempDir) . " && " . escapeshellarg($execPath) . " --appimage-extract \"*.png\" > /dev/null 2>&1";
             shell_exec($command);
             
-            $files = File::files($tempDir . '/squashfs-root');
-            foreach ($files as $file) {
-                if (strtolower($file->getExtension()) === 'png') {
-                    File::copy($file->getRealPath(), $targetIconPath);
-                    File::deleteDirectory($tempDir);
-                    return $targetIconPath;
+            if (File::exists($tempDir . '/squashfs-root')) {
+                $files = File::files($tempDir . '/squashfs-root');
+                foreach ($files as $file) {
+                    $ext = strtolower($file->getExtension());
+                    if (in_array($ext, ['png', 'svg', 'jpg', 'jpeg'])) {
+                        $realPath = $file->getRealPath();
+                        if ($realPath) {
+                            $targetPath = $iconDir . '/appimage-' . $id . '.' . $ext;
+                            File::copy($realPath, $targetPath);
+                            File::deleteDirectory($tempDir);
+                            return $targetPath;
+                        }
+                    }
                 }
             }
         } catch (\Exception $e) {
@@ -179,26 +210,35 @@ class AppImageService
         return null;
     }
 
-    /**
-     * Remove an AppImage and its .desktop entry.
-     */
     public function removeAppImage(string $path): bool
     {
-        if (File::exists($path)) {
-            $fileName = basename($path);
-            $id = md5($fileName);
-            $desktopPath = getenv('HOME') . '/.local/share/applications/appimage-' . $id . '.desktop';
-            $iconPath = getenv('HOME') . '/.local/share/icons/appimage-' . $id . '.png';
-            
-            if (File::exists($desktopPath)) {
-                File::delete($desktopPath);
-            }
+        try {
+            if (!empty($path) && File::exists($path)) {
+                $fileName = basename($path);
+                $id = md5($fileName);
+                $home = getenv('HOME');
+                
+                if ($home) {
+                    $desktopPath = $home . '/.local/share/applications/appimage-' . $id . '.desktop';
+                    $iconPath = $home . '/.local/share/icons/appimage-' . $id . '.png';
+                    
+                    if (File::exists($desktopPath)) {
+                        File::delete($desktopPath);
+                    }
 
-            if (File::exists($iconPath)) {
-                File::delete($iconPath);
-            }
+                    $extensions = ['png', 'svg', 'jpg', 'jpeg'];
+                    foreach ($extensions as $ext) {
+                        $iconPath = $home . '/.local/share/icons/appimage-' . $id . '.' . $ext;
+                        if (File::exists($iconPath)) {
+                            File::delete($iconPath);
+                        }
+                    }
+                }
 
-            return File::delete($path);
+                return File::delete($path);
+            }
+        } catch (\Exception $e) {
+            Log::error("Failed to remove AppImage: " . $e->getMessage());
         }
         return false;
     }
