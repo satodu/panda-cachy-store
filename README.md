@@ -11,6 +11,13 @@
     <a href="LICENSE">
         <img src="https://img.shields.io/github/license/satodu/panda-cachy-store?style=for-the-badge&color=0ea158" alt="License">
     </a>
+    <a href="https://satodu.github.io/panda-cachy-store/">
+        <img src="https://img.shields.io/badge/Official_Website-Visit_Site-0ea158?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Website">
+    </a>
+</p>
+
+<p align="center">
+  <b>🌐 Check the official website: <a href="https://satodu.github.io/panda-cachy-store/">satodu.github.io/panda-cachy-store/</a></b>
 </p>
 
 A modern, high-performance, and beautiful community-driven store for **CachyOS**, built with **Laravel**, **Livewire (Volt)**, and **NativePHP**.
