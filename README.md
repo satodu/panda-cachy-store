@@ -42,6 +42,7 @@ A modern, high-performance, and beautiful community-driven store for **CachyOS**
 
 ## ✨ Features
 
+- **⚙️ AppImage Management (Gear Lever Style)**: Integrated manager to integrate, launch, and uninstall AppImages. Automatically handles icon extraction and desktop menu entries.
 - **🚀 Performance-First**: Intelligent caching system for lightning-fast search results.
 - **💎 Shadcn UI Aesthetic**: Clean, professional, and minimalist design based on the Zinc theme.
 - **📦 AUR Integration**: Search and install community packages directly from the AUR via `yay`.
