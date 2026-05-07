@@ -10,7 +10,7 @@
             </div>
 
             <div class="space-y-8">
-                <div class="bg-card border border-border rounded-xl p-10 space-y-8 shadow-sm">
+                <div class="bg-card rounded-xl p-10 space-y-8 shadow-md">
                     <div class="flex items-center justify-between">
                         <div class="space-y-1">
                             <h4 class="text-[17px] font-black tracking-tight">Arch User Repository</h4>
@@ -23,7 +23,7 @@
                             <div class="absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform {{ $settings['enable_aur'] ? 'translate-x-6' : '' }}"></div>
                         </button>
                     </div>
-                    <div class="pt-8 border-t border-border/50 flex items-center justify-between opacity-40">
+                    <div class="pt-8 flex items-center justify-between opacity-40">
                         <div class="space-y-1">
                             <h4 class="text-[17px] font-black tracking-tight">Flatpak Integration</h4>
                             <p class="text-sm text-muted-foreground leading-relaxed">Access Flathub's universal application ecosystem.</p>
@@ -34,7 +34,7 @@
                     </div>
                 </div>
 
-                <div class="bg-card border border-border rounded-xl p-10 flex items-center justify-between shadow-sm">
+                <div class="bg-card rounded-xl p-10 flex items-center justify-between shadow-md">
                     <div class="space-y-1">
                         <h4 class="text-[17px] font-black tracking-tight">Search Results Limit</h4>
                         <p class="text-sm text-muted-foreground leading-relaxed">Limit the number of packages displayed for better performance.</p>
@@ -67,6 +67,23 @@
                         </div>
                     </div>
                 </div>
+                <div class="bg-card rounded-xl p-10 flex items-center justify-between shadow-md">
+                    <div class="space-y-1">
+                        <h4 class="text-[17px] font-black tracking-tight">AppImage Storage Directory</h4>
+                        <p class="text-sm text-muted-foreground leading-relaxed">Choose where your AppImages are stored and managed.</p>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <div class="px-4 py-2 bg-muted/50 rounded-md text-xs font-mono text-muted-foreground truncate max-w-[200px]">
+                            {{ str_replace(getenv('HOME'), '~', $settings['appimage_path']) }}
+                        </div>
+                        <button 
+                            wire:click="selectAppImagePath"
+                            class="h-10 px-4 bg-accent/50 rounded-md text-xs font-bold hover:bg-accent transition-colors"
+                        >
+                            Change
+                        </button>
+                    </div>
+                </div>
 
                 <div class="flex justify-end pt-4">
                     <button wire:click="saveSettings" class="h-12 px-10 bg-primary text-primary-foreground text-xs font-black rounded-md hover:bg-primary/90 transition-all uppercase tracking-[0.2em] shadow-xl">Save Changes</button>
@@ -75,14 +92,14 @@
         </div>
 
         <!-- About Author Section -->
-        <div class="pt-12 border-t border-border">
-            <div class="bg-card border border-border rounded-2xl overflow-hidden shadow-xl flex flex-col md:flex-row">
-                <div class="md:w-1/3 bg-muted/30 p-10 flex flex-col items-center text-center border-r border-border">
+        <div class="pt-12">
+            <div class="bg-card rounded-2xl overflow-hidden shadow-2xl flex flex-col md:flex-row">
+                <div class="md:w-1/3 bg-muted/30 p-10 flex flex-col items-center text-center">
                     <div class="w-24 h-24 rounded-full bg-cachy/20 flex items-center justify-center mb-6 border-4 border-background shadow-lg overflow-hidden text-4xl">🐼</div>
                     <h3 class="text-xl font-black tracking-tight mb-1">Panda</h3>
                     <p class="text-[10px] text-muted-foreground font-bold uppercase tracking-widest mb-6">Eduardo Sato</p>
                     <div class="flex flex-col gap-2 w-full">
-                        <div class="px-3 py-2 bg-background border border-border rounded-lg text-[11px] font-bold flex items-center gap-3">
+                        <div class="px-3 py-2 bg-background rounded-lg text-[11px] font-bold flex items-center gap-3 shadow-inner">
                             <svg class="w-3.5 h-3.5 text-cachy" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path></svg>
                             <span>São Paulo, Brazil</span>
                         </div>
@@ -97,7 +114,7 @@
                     </div>
                     
                     <div class="grid grid-cols-2 gap-3">
-                        <a href="https://github.com/satodu" target="_blank" class="p-4 border border-border rounded-xl hover:bg-accent transition-all group">
+                        <a href="https://github.com/satodu" target="_blank" class="p-4 bg-muted/20 rounded-xl hover:bg-accent transition-all group">
                             <div class="flex items-center gap-3">
                                 <svg class="w-5 h-5 text-foreground" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
                                 <span class="text-xs font-bold">GitHub</span>

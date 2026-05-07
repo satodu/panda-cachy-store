@@ -2,7 +2,9 @@
 
 use Livewire\Volt\Component;
 use App\Services\PackageService;
+use App\Services\AppImageService;
 use Native\Laravel\Facades\Notification;
+use Native\Laravel\Dialog;
 use Illuminate\Support\Facades\Storage;
 
 new class extends Component
@@ -10,6 +12,7 @@ new class extends Component
     public $search = '';
     public $packages = [];
     public $systemPackages = []; 
+    public $appImages = [];
     public $selectedPackage = null;
     public $tab = 'explore'; 
     public $filterRepo = 'all'; 
@@ -25,7 +28,8 @@ new class extends Component
     public $settings = [
         'enable_aur' => true,
         'enable_flatpak' => false,
-        'search_limit' => 50
+        'search_limit' => 50,
+        'appimage_path' => ''
     ];
 
     public $sysInfo = [
@@ -39,6 +43,11 @@ new class extends Component
         $this->sysInfo['kernel'] = php_uname('r');
         $this->sysInfo['hostname'] = gethostname();
         $this->loadSettings();
+        
+        if (empty($this->settings['appimage_path'])) {
+            $this->settings['appimage_path'] = (new AppImageService())->getDefaultDirectory();
+        }
+
         $this->loadData();
         $this->checkPendingInstallations();
     }
@@ -126,6 +135,11 @@ new class extends Component
     {
         if ($this->tab === 'settings') return;
 
+        if ($this->tab === 'appimages') {
+            $this->loadAppImages();
+            return;
+        }
+
         if ($this->tab === 'installed') {
             $this->loadInstalled();
             $this->systemPackages = [];
@@ -184,7 +198,17 @@ new class extends Component
     public function getSystemPackages()
     {
         $service = new PackageService();
-        $essentials = ['cachy-update', 'cachyos-settings', 'cachyos-hooks', 'cachyos-gaming-meta'];
+        $path = storage_path('app/essentials.json');
+        
+        $essentials = [];
+        if (file_exists($path)) {
+            $essentials = json_decode(file_get_contents($path), true);
+            shuffle($essentials);
+            $essentials = array_slice($essentials, 0, 3);
+        } else {
+            $essentials = ['cachy-update', 'cachyos-settings', 'cachyos-gaming-meta'];
+        }
+
         $this->systemPackages = [];
         
         foreach($essentials as $name) {
@@ -324,6 +348,70 @@ new class extends Component
         $this->dispatch('close-toast');
     }
 
+    public function loadAppImages()
+    {
+        $service = new AppImageService();
+        $this->appImages = $service->listAppImages($this->settings['appimage_path']);
+    }
+
+    public function launchAppImage($path)
+    {
+        (new AppImageService())->launch($path);
+        $this->showNotification("Launching", "Starting application...");
+    }
+
+    public function registerAppImage($path, $targetDir = null)
+    {
+        $targetDir = $targetDir ?? $this->settings['appimage_path'];
+        $service = new AppImageService();
+        $success = $service->registerAppImage($path, $targetDir);
+        
+        if ($success) {
+            $this->showNotification("Success", "AppImage integrated into your menu.");
+            $this->loadAppImages();
+        } else {
+            $this->showNotification("Error", "Failed to integrate AppImage.", "error");
+        }
+    }
+
+    public function selectAppImage()
+    {
+        $path = Dialog::new()
+            ->title('Select AppImage')
+            ->button('Select')
+            ->filter('AppImage', ['AppImage', 'appimage'])
+            ->open();
+
+        if ($path) {
+            $this->registerAppImage($path);
+        }
+    }
+
+    public function selectAppImagePath()
+    {
+        $path = Dialog::new()
+            ->title('Select Directory for AppImages')
+            ->button('Select')
+            ->folders()
+            ->open();
+
+        if ($path) {
+            $this->settings['appimage_path'] = $path;
+            $this->saveSettings();
+        }
+    }
+
+    public function removeAppImage($path)
+    {
+        $service = new AppImageService();
+        if ($service->removeAppImage($path)) {
+            $this->showNotification("Removed", "AppImage and menu entry removed.");
+            $this->loadAppImages();
+        } else {
+            $this->showNotification("Error", "Failed to remove AppImage.", "error");
+        }
+    }
+
     public function hideToast()
     {
         $this->toast['show'] = false;
@@ -394,7 +482,7 @@ new class extends Component
                     @if($tab === 'explore' && (empty($search) || strlen($search) < 3))
                         <div class="mb-14">
                             <h3 class="text-xs font-black text-muted-foreground uppercase tracking-[0.2em] mb-8">Official CachyOS Tools</h3>
-                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                                 @foreach($systemPackages as $pkg)
                                     <x-store.package-card :$pkg :$pendingInstallations wire:key="sys-{{ $pkg['name'] }}" />
                                 @endforeach
@@ -441,6 +529,8 @@ new class extends Component
                     @endif
                 </div>
             </div>
+        @elseif($tab === 'appimages')
+            <x-store.appimages-tab :$appImages />
         @elseif($tab === 'settings')
             <x-store.settings-tab :$settings />
         @endif

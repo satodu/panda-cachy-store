@@ -1,6 +1,6 @@
 @props(['tab', 'sysInfo', 'pendingInstallations'])
 
-<aside {{ $attributes->merge(['class' => 'w-72 bg-card border-r border-border flex flex-col shrink-0']) }}>
+<aside {{ $attributes->merge(['class' => 'w-72 bg-card shadow-xl flex flex-col shrink-0 relative z-50']) }}>
     <div class="p-8 flex-1">
         <button wire:click="clearSearch" class="w-full flex items-center gap-4 mb-2 px-2 hover:bg-accent/10 rounded-xl transition-all group active:scale-95 text-left">
             <img src="/logo.png" class="w-12 h-12 object-contain group-hover:-translate-y-1 group-hover:scale-110 transition-all duration-300 ease-out" alt="Logo">
@@ -27,6 +27,13 @@
                 <span>Installed</span>
             </button>
             <button 
+                wire:click="setTab('appimages')"
+                class="w-full flex items-center gap-4 px-4 py-3 rounded-md text-[15px] transition-all {{ $tab === 'appimages' ? 'bg-accent text-accent-foreground font-bold' : 'text-muted-foreground hover:bg-accent/40 hover:text-foreground' }}"
+            >
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"></path></svg>
+                <span>AppImages</span>
+            </button>
+            <button 
                 wire:click="runSystemUpdate"
                 class="w-full flex items-center gap-4 px-4 py-3 rounded-md text-[15px] transition-all text-muted-foreground hover:bg-cachy/10 hover:text-cachy"
             >
@@ -47,7 +54,7 @@
     <!-- Sidebar Footer -->
     <div class="p-8 bg-muted/10 space-y-5 relative">
         <div class="flex items-center gap-4">
-            <div class="w-9 h-9 rounded border border-border flex items-center justify-center bg-background shadow-sm">
+            <div class="w-9 h-9 rounded flex items-center justify-center bg-background shadow-sm">
                 <svg class="w-4 h-4 text-cachy" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path></svg>
             </div>
             <div>
@@ -56,7 +63,7 @@
             </div>
         </div>
         <div class="flex items-center gap-4">
-            <div class="w-9 h-9 rounded border border-border flex items-center justify-center bg-background shadow-sm">
+            <div class="w-9 h-9 rounded flex items-center justify-center bg-background shadow-sm">
                 <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
             </div>
             <div>
@@ -65,9 +72,9 @@
             </div>
         </div>
         
-        <div class="pt-4 border-t border-border/50">
+        <div class="pt-4">
             <button wire:click="setTab('settings')" class="text-[10px] font-black uppercase text-muted-foreground hover:text-cachy transition-colors tracking-widest leading-none">
-                v1.0.1 | Made by Panda 🐼
+                v1.0.3 | Made by Panda 🐼
             </button>
         </div>
     </div>

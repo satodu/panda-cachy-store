@@ -15,15 +15,15 @@
     };
 @endphp
 
-<div {{ $attributes->merge(['class' => 'bg-card border border-border rounded-lg p-6 hover:border-primary/20 transition-all flex flex-col h-full group relative']) }}>
+<div {{ $attributes->merge(['class' => 'bg-card rounded-lg p-6 hover:shadow-lg transition-all flex flex-col h-full group relative']) }}>
     <div class="flex items-start justify-between mb-5">
         <div class="w-14 h-14 bg-muted rounded-lg flex items-center justify-center text-3xl group-hover:scale-105 transition-transform">
             {{ $emoji }}
         </div>
         <div class="flex flex-col items-end gap-1.5">
-            @if($pkg['installed']) <span class="text-[9px] font-black text-cachy border border-cachy/30 px-2.5 py-0.5 rounded uppercase">Installed</span> @endif
-            @if(isset($pkg['is_aur']) && $pkg['is_aur']) <span class="text-[9px] font-black text-blue-400 border border-blue-400/30 px-2 py-0.5 rounded uppercase tracking-widest">AUR</span>
-            @else <span class="text-[9px] font-black text-purple-400 border border-purple-400/30 px-2 py-0.5 rounded uppercase tracking-widest">{{ $pkg['repo'] ?? 'Official' }}</span> @endif
+            @if($pkg['installed']) <span class="text-[9px] font-black bg-cachy/10 text-cachy px-2.5 py-0.5 rounded uppercase">Installed</span> @endif
+            @if(isset($pkg['is_aur']) && $pkg['is_aur']) <span class="text-[9px] font-black bg-blue-400/10 text-blue-400 px-2 py-0.5 rounded uppercase tracking-widest">AUR</span>
+            @else <span class="text-[9px] font-black bg-purple-400/10 text-purple-400 px-2 py-0.5 rounded uppercase tracking-widest">{{ $pkg['repo'] ?? 'Official' }}</span> @endif
         </div>
     </div>
     <h3 class="text-[17px] font-black mb-1 truncate tracking-tight">{{ $pkg['name'] }}</h3>
@@ -45,7 +45,7 @@
                 <span wire:loading wire:target="install('{{ $pkg['name'] }}', {{ $isAurVal }})">Loading...</span>
             </button>
         @endif
-        <button wire:click="showDetails('{{ $pkg['name'] }}', {{ $isAurVal }})" class="h-10 w-10 border border-input rounded flex items-center justify-center text-muted-foreground hover:bg-accent transition-colors">
+        <button wire:click="showDetails('{{ $pkg['name'] }}', {{ $isAurVal }})" class="h-10 w-10 bg-accent/50 rounded flex items-center justify-center text-muted-foreground hover:bg-accent transition-colors">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
         </button>
     </div>

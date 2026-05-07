@@ -1,13 +1,42 @@
 # 🐼 CachyOS Store (Community Edition)
 
 <p align="center">
-  <img src="resources/icons/icon.png" width="128" height="128" alt="CachyOS Store Logo">
+  <img src="public/logo.png" width="350" alt="CachyOS Store Logo">
+</p>
+
+<p align="center">
+    <a href="https://github.com/satodu/panda-cachy-store/releases">
+        <img src="https://img.shields.io/github/v/release/satodu/panda-cachy-store?style=for-the-badge&color=0ea158" alt="Release">
+    </a>
+    <a href="LICENSE">
+        <img src="https://img.shields.io/github/license/satodu/panda-cachy-store?style=for-the-badge&color=0ea158" alt="License">
+    </a>
 </p>
 
 A modern, high-performance, and beautiful community-driven store for **CachyOS**, built with **Laravel**, **Livewire (Volt)**, and **NativePHP**.
 
 > [!IMPORTANT]
 > **UNOFFICIAL FAN PROJECT**: This application is not an official product of the CachyOS team. It is a fan-made project created by **Panda** to enhance the software management experience on CachyOS.
+
+---
+
+## 📸 Visual Preview
+
+<p align="center">
+  <img src="resources/screenshots/home.png" width="800" alt="Home Screen">
+</p>
+
+<div align="center">
+  <img src="resources/screenshots/details.png" width="48%" alt="Package Details">
+  <img src="resources/screenshots/search.png" width="48%" alt="Search Results">
+</div>
+
+<br>
+
+<div align="center">
+  <img src="resources/screenshots/appimages.png" width="48%" alt="AppImages Manager">
+  <img src="resources/screenshots/settings.png" width="48%" alt="Settings Menu">
+</div>
 
 ---
 
