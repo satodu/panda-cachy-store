@@ -1,7 +1,7 @@
 @props(['pkg', 'pendingInstallations'])
 
 @php 
-    $isPending = in_array($pkg['name'], $pendingInstallations);
+    $isPending = isset($pendingInstallations[$pkg['name']]);
     $isAurVal = isset($pkg['is_aur']) && $pkg['is_aur'] ? 'true' : 'false';
     $emoji = match(true) { 
         str_contains(strtolower($pkg['name']), 'steam') => '🎮', 

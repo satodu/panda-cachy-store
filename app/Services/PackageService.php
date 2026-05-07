@@ -168,53 +168,10 @@ class PackageService
     }
 
     /**
-     * Instala um pacote
+     * Helper para abrir terminal e retornar o PID do processo
      */
-    public function install(string $packageName, bool $isAur = false): bool
+    private function openTerminal(string $command, string $callbackCmd): int|false
     {
-        $helper = $this->getHelper();
-        
-        Cache::put("installing_{$packageName}", true, 1800);
-
-        if ($isAur || $helper !== 'pacman') {
-            $innerCommand = "";
-            if ($helper === 'paru') {
-                $innerCommand = "paru --skipreview --noconfirm -S " . escapeshellarg($packageName);
-            } else {
-                $innerCommand = "yay --noedit --noconfirm -S " . escapeshellarg($packageName);
-            }
-
-            $artisan = base_path('artisan');
-            $php = PHP_BINARY;
-            $callbackCmd = "{$php} {$artisan} package:finished " . escapeshellarg($packageName);
-
-            $terminals = ['konsole', 'alacritty', 'kitty', 'foot', 'gnome-terminal', 'xterm'];
-            $foundTerminal = null;
-
-            foreach ($terminals as $term) {
-                if ($this->commandExists($term)) {
-                    $foundTerminal = $term;
-                    break;
-                }
-            }
-
-            if ($foundTerminal) {
-                $terminalCmd = match ($foundTerminal) {
-                    'konsole' => "konsole -e bash -c \"$innerCommand && $callbackCmd; sleep 5\"",
-                    'gnome-terminal' => "gnome-terminal -- bash -c \"$innerCommand && $callbackCmd; sleep 5\"",
-                    default => "$foundTerminal -e bash -c \"$innerCommand && $callbackCmd; sleep 5\""
-                };
-
-                shell_exec($terminalCmd . " > /dev/null 2>&1 &");
-                return true;
-            }
-        }
-
-        $artisan = base_path('artisan');
-        $php = PHP_BINARY;
-        $innerCommand = "sudo pacman -S --noconfirm " . escapeshellarg($packageName);
-        $callbackCmd = "{$php} {$artisan} package:finished " . escapeshellarg($packageName);
-
         $terminals = ['konsole', 'alacritty', 'kitty', 'foot', 'gnome-terminal', 'xterm', 'footclient'];
         $foundTerminal = null;
 
@@ -225,24 +182,49 @@ class PackageService
             }
         }
 
-        if ($foundTerminal) {
-            $terminalCmd = match ($foundTerminal) {
-                'konsole' => "konsole -e bash -c \"$innerCommand; $callbackCmd; sleep 5\"",
-                'gnome-terminal' => "gnome-terminal -- bash -c \"$innerCommand; $callbackCmd; sleep 5\"",
-                default => "$foundTerminal -e bash -c \"$innerCommand; $callbackCmd; sleep 5\""
-            };
+        if (!$foundTerminal) return false;
 
-            shell_exec($terminalCmd . " > /dev/null 2>&1 &");
-            return true;
+        $terminalCmd = match ($foundTerminal) {
+            'konsole' => "konsole -e bash -c \"$command; $callbackCmd; sleep 5\"",
+            'gnome-terminal' => "gnome-terminal -- bash -c \"$command; $callbackCmd; sleep 5\"",
+            default => "$foundTerminal -e bash -c \"$command; $callbackCmd; sleep 5\""
+        };
+
+        // Executa em background e captura o PID do terminal
+        $pid = shell_exec($terminalCmd . " > /dev/null 2>&1 & echo $!");
+        
+        return $pid ? (int)trim($pid) : false;
+    }
+
+    /**
+     * Instala um pacote
+     */
+    public function install(string $packageName, bool $isAur = false): int|false
+    {
+        $helper = $this->getHelper();
+        
+        Cache::put("installing_{$packageName}", true, 1800);
+
+        $artisan = base_path('artisan');
+        $php = PHP_BINARY;
+        $callbackCmd = "{$php} {$artisan} package:finished " . escapeshellarg($packageName);
+
+        if ($isAur || $helper !== 'pacman') {
+            $innerCommand = ($helper === 'paru') 
+                ? "paru --skipreview --noconfirm -S " . escapeshellarg($packageName)
+                : "yay --noedit --noconfirm -S " . escapeshellarg($packageName);
+            
+            return $this->openTerminal($innerCommand, $callbackCmd);
         }
 
-        return false;
+        $innerCommand = "sudo pacman -S --noconfirm " . escapeshellarg($packageName);
+        return $this->openTerminal($innerCommand, $callbackCmd);
     }
 
     /**
      * Remove um pacote
      */
-    public function remove(string $packageName): bool
+    public function remove(string $packageName): int|false
     {
         $artisan = base_path('artisan');
         $php = PHP_BINARY;
@@ -251,29 +233,11 @@ class PackageService
 
         Cache::put("installing_{$packageName}", true, 600);
         
-        $terminals = ['konsole', 'alacritty', 'kitty', 'foot', 'gnome-terminal', 'xterm', 'footclient'];
-        $foundTerminal = null;
-
-        foreach ($terminals as $term) {
-            if ($this->commandExists($term)) {
-                $foundTerminal = $term;
-                break;
-            }
-        }
-
-        if ($foundTerminal) {
-            $terminalCmd = match ($foundTerminal) {
-                'konsole' => "konsole -e bash -c \"$innerCommand; $callbackCmd; sleep 5\"",
-                'gnome-terminal' => "gnome-terminal -- bash -c \"$innerCommand; $callbackCmd; sleep 5\"",
-                default => "$foundTerminal -e bash -c \"$innerCommand; $callbackCmd; sleep 5\""
-            };
-
-            shell_exec($terminalCmd . " > /dev/null 2>&1 &");
+        $pid = $this->openTerminal($innerCommand, $callbackCmd);
+        if ($pid) {
             $this->clearCache();
-            return true;
         }
-
-        return false;
+        return $pid;
     }
 
     /**

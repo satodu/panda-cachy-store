@@ -64,23 +64,54 @@ new class extends Component
 
     public function checkPendingInstallations()
     {
-        foreach ($this->pendingInstallations as $key => $name) {
+        foreach ($this->pendingInstallations as $name => $data) {
+            // Se o cache sumiu, o comando terminou via callback oficial
             if (!\Illuminate\Support\Facades\Cache::has("installing_{$name}")) {
-                unset($this->pendingInstallations[$key]);
-                
-                // Força a limpeza do cache de busca antes de recarregar
-                $service = new PackageService();
-                $service->clearCache();
-                
-                $this->loadData();
-                $this->showNotification("Concluído", "Operação com {$name} finalizada.");
+                $this->finalizeOperation($name);
+                continue;
+            }
 
-                // Fecha detalhes e modais automaticamente ao finalizar
-                $this->selectedPackage = null;
-                $this->confirmingAppImageDeletion = null;
-                $this->confirmingPackageRemoval = null;
+            // Se temos o PID, verificamos se o processo ainda existe no sistema
+            $pid = $data['pid'] ?? null;
+            if ($pid && !file_exists("/proc/{$pid}")) {
+                // O terminal foi fechado ou o processo morreu
+                $this->checkIfFinishedManually($name, $data['type']);
             }
         }
+    }
+
+    protected function checkIfFinishedManually($name, $type)
+    {
+        // Verifica se o pacote está instalado no momento
+        $res = \Illuminate\Support\Facades\Process::run("pacman -Qq " . escapeshellarg($name));
+        $isCurrentlyInstalled = $res->successful();
+        
+        $expectedInstalled = ($type === 'install');
+        
+        if ($isCurrentlyInstalled === $expectedInstalled) {
+            $this->finalizeOperation($name, "Concluído", "Operação com {$name} finalizada com sucesso.");
+        } else {
+            $this->finalizeOperation($name, "Interrompido", "A instalação/remoção de {$name} foi cancelada ou o terminal foi fechado.", 'error');
+        }
+    }
+
+    protected function finalizeOperation($name, $title = "Concluído", $message = null, $type = 'success')
+    {
+        unset($this->pendingInstallations[$name]);
+        \Illuminate\Support\Facades\Cache::forget("installing_{$name}");
+        
+        $service = new PackageService();
+        $service->clearCache();
+        
+        $this->loadData();
+        
+        if ($message) {
+            $this->showNotification($title, $message, $type);
+        }
+
+        $this->selectedPackage = null;
+        $this->confirmingAppImageDeletion = null;
+        $this->confirmingPackageRemoval = null;
     }
 
     public function loadSettings()
@@ -196,7 +227,6 @@ new class extends Component
     public function clearSearch()
     {
         $this->search = '';
-        $this->tab = 'explore';
         $this->page = 1;
         $this->loadData();
     }
@@ -315,22 +345,17 @@ new class extends Component
     public function install($name, $isAur = false)
     {
         $service = new PackageService();
-        $success = $service->install($name, $isAur);
+        $pid = $service->install($name, $isAur);
         
-        if ($success) {
-            if ($isAur || (new PackageService())->getHelper() !== 'pacman') {
-                // Para AUR, entramos em modo de monitoramento
-                $this->pendingInstallations[] = $name;
-                $this->showNotification("Installing", "Building $name in terminal...");
-            } else {
-                $this->showNotification("Success", "$name has been installed.");
-                Notification::new()
-                    ->title('CachyOS Store')
-                    ->message("$name installed successfully!")
-                    ->show();
-            }
+        if ($pid) {
+            $this->pendingInstallations[$name] = [
+                'pid' => $pid,
+                'type' => 'install'
+            ];
+            
+            $this->showNotification("Installing", "Building $name in terminal...");
         } else {
-            $this->showNotification("Error", "Failed to install $name.", 'error');
+            $this->showNotification("Error", "Failed to start installation for $name.", 'error');
         }
 
         $this->loadData();
@@ -352,10 +377,13 @@ new class extends Component
         if (!$name) return;
 
         $service = new PackageService();
-        $success = $service->remove($name);
+        $pid = $service->remove($name);
         
-        if ($success) {
-            $this->pendingInstallations[] = $name;
+        if ($pid) {
+            $this->pendingInstallations[$name] = [
+                'pid' => $pid,
+                'type' => 'remove'
+            ];
             $this->showNotification("Removing", "Uninstalling $name in terminal...");
         } else {
             $this->showNotification("Error", "Failed to remove $name.", 'error');
@@ -374,7 +402,7 @@ new class extends Component
             'type' => $type
         ];
         
-        $this->dispatch('close-toast');
+        $this->dispatch('notify');
     }
 
     public function loadAppImages()
@@ -463,8 +491,8 @@ new class extends Component
 
 <div 
     class="flex h-screen bg-background text-foreground overflow-hidden relative font-sans" 
-    x-data="{ show: @entangle('toast.show') }" 
-    x-init="$watch('show', value => { if(value) setTimeout(() => $wire.hideToast(), 4000) })"
+    x-data="{ show: false, timeout: null }" 
+    x-on:notify.window="show = true; clearTimeout(timeout); timeout = setTimeout(() => show = false, 4000)"
     @if(count($pendingInstallations) > 0) wire:poll.2s="checkPendingInstallations" @endif
 >
     
