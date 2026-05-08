@@ -50,6 +50,7 @@ A modern, high-performance, and beautiful community-driven store for **CachyOS**
 ## ✨ Features
 
 - **⚙️ AppImage Management (Gear Lever Style)**: Integrated manager to integrate, launch, and uninstall AppImages. Automatically handles icon extraction and desktop menu entries.
+- **📦 Flatpak Support** *(New in v1.1.1)*: Browse, install, update, and remove Flatpak applications directly from the store. Enable or disable Flatpak integration at any time from Settings.
 - **🚀 Performance-First**: Intelligent caching system for lightning-fast search results.
 - **💎 Shadcn UI Aesthetic**: Clean, professional, and minimalist design based on the Zinc theme.
 - **📦 AUR Integration**: Search and install community packages directly from the AUR via `yay`.
