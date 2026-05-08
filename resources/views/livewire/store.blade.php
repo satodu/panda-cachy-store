@@ -225,11 +225,25 @@ new class extends Component
     public function showDetails($name, $isAur = false, $isFlatpak = false)
     {
         $service = new PackageService();
-        $this->selectedPackage = $service->getPackageDetails($name, $isAur, $isFlatpak);
-        if ($this->selectedPackage) {
-            $this->selectedPackage['is_aur'] = $isAur;
-            $this->selectedPackage['is_flatpak'] = $isFlatpak;
+        $details = $service->getPackageDetails($name, $isAur, $isFlatpak);
+
+        // Fallback: se getPackageDetails retornar null, usa dados básicos + busca screenshots para flatpak
+        if (!$details) {
+            $details = [
+                'Name'         => $name,
+                'Description'  => 'No additional details available for this package.',
+                'Version'      => 'Unknown',
+                'icon_url'     => $service->getIcon($name, $isFlatpak),
+                // Para flatpaks, busca screenshots mesmo sem os detalhes completos
+                'screenshots'  => $service->getScreenshots($name, $isFlatpak),
+                'is_installed' => false,
+            ];
         }
+
+        $this->selectedPackage = array_merge($details, [
+            'is_aur'     => $isAur,
+            'is_flatpak' => $isFlatpak,
+        ]);
     }
 
     public function closeDetails()
@@ -326,6 +340,9 @@ new class extends Component
     public function updatedSearch()
     {
         $this->page = 1;
+        // Limpa imediatamente para evitar flash de resultados stale de requests anteriores
+        $this->packages = [];
+        $this->totalResults = 0;
         $this->loadData();
     }
 
@@ -392,6 +409,15 @@ new class extends Component
             return $data;
         });
 
+        // Enriquece com screenshots fora do cache (funciona mesmo com cache antigo)
+        $service = new PackageService();
+        $this->packages = array_map(function($pkg) use ($service) {
+            if (!isset($pkg['screenshots'])) {
+                $pkg['screenshots'] = $service->getScreenshots($pkg['name'], $pkg['is_flatpak'] ?? false);
+            }
+            return $pkg;
+        }, $this->packages);
+
         // Garante que o status de instalado esteja sempre certo mesmo se vier do cache
         $this->updateInstallationStatus();
     }
@@ -404,17 +430,19 @@ new class extends Component
         $this->packages = array_map(function($pkg) use ($service) {
             $isFlatpak = $pkg['is_flatpak'] ?? false;
             $isAur = $pkg['is_aur'] ?? false;
+            $name = $pkg['name'];
             
             return [
-                'repo' => $isFlatpak ? 'flathub' : ($isAur ? 'aur' : 'official'),
-                'name' => $pkg['name'],
+                'repo'         => $isFlatpak ? 'flathub' : ($isAur ? 'aur' : 'official'),
+                'name'         => $name,
                 'display_name' => $pkg['display_name'] ?? null,
-                'version' => $pkg['version'],
-                'is_aur' => $isAur,
-                'is_flatpak' => $isFlatpak,
-                'installed' => true,
-                'description' => $pkg['description'] ?? 'Package installed on your system.',
-                'icon_url' => $service->getIcon($pkg['name'], $isFlatpak),
+                'version'      => $pkg['version'],
+                'is_aur'       => $isAur,
+                'is_flatpak'   => $isFlatpak,
+                'installed'    => true,
+                'description'  => $pkg['description'] ?? 'Package installed on your system.',
+                'icon_url'     => $service->getIcon($name, $isFlatpak),
+                'screenshots'  => $service->getScreenshots($name, $isFlatpak),
             ];
         }, $allInstalled);
     }
@@ -809,56 +837,85 @@ new class extends Component
             <!-- Content Area -->
             <div class="flex-1 overflow-y-auto">
                 <div class="max-w-7xl mx-auto p-10">
-                    
-                    <!-- Essentials Row -->
+
+                    {{-- === HOME (explore sem busca ativa) === --}}
                     @if($tab === 'explore' && (empty($search) || strlen($search) < 3))
-                        <div class="mb-14">
-                            <h3 class="text-xs font-black text-muted-foreground uppercase tracking-[0.2em] mb-8">Official CachyOS Tools</h3>
-                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                                @foreach($systemPackages as $pkg)
-                                    <x-store.package-card :$pkg :$pendingInstallations wire:key="sys-{{ $pkg['name'] }}" />
-                                @endforeach
+                        @if(!empty($search) && strlen($search) < 3)
+                            <p class="text-sm text-cachy font-bold italic tracking-wide mb-8">Enter at least 3 characters for a global search...</p>
+                        @endif
+                        <x-store.explore-home-tab
+                            :$packages
+                            :$systemPackages
+                            :$pendingInstallations
+                        />
+
+                    {{-- === SEARCH RESULTS (explore com busca ativa) === --}}
+                    @elseif($tab === 'explore' && strlen($search) >= 3)
+                        <x-store.explore-search-tab
+                            :$packages
+                            :$pendingInstallations
+                            :$search
+                            :$totalResults
+                            :$page
+                            :$settings
+                        />
+
+                    {{-- === INSTALLED === --}}
+                    @elseif($tab === 'installed')
+                        <div class="mb-10">
+                            <h2 class="text-3xl font-black tracking-tight mb-2">Installed Applications</h2>
+                            <p class="text-xs text-muted-foreground font-bold uppercase tracking-widest">{{ $totalResults }} packages installed</p>
+                        </div>
+
+                        {{-- Skeleton while loading installed --}}
+                        <div class="hidden"
+                            wire:loading.class.remove="hidden"
+                            wire:target="setTab"
+                        >
+                            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                                @for($s = 0; $s < 8; $s++)
+                                    <div class="bg-card rounded-lg overflow-hidden animate-pulse">
+                                        <div class="p-6 space-y-4">
+                                            <div class="w-14 h-14 bg-muted/60 rounded-lg"></div>
+                                            <div class="h-4 bg-muted/60 rounded w-3/4"></div>
+                                            <div class="h-3 bg-muted/40 rounded w-full"></div>
+                                            <div class="h-10 bg-muted/30 rounded mt-4"></div>
+                                        </div>
+                                    </div>
+                                @endfor
                             </div>
                         </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
+                            wire:loading.class="hidden"
+                            wire:target="setTab"
+                        >
+                            @forelse($packages as $pkg)
+                                <x-store.package-card :$pkg :$pendingInstallations wire:key="inst-{{ $pkg['name'] }}-{{ $loop->index }}" />
+                            @empty
+                                <div class="col-span-full py-32 text-center">
+                                    <h3 class="text-xl font-bold text-muted-foreground">No installed packages found.</h3>
+                                </div>
+                            @endforelse
+                        </div>
+
+                        {{-- Pagination para installed --}}
+                        @if($totalResults > $settings['search_limit'])
+                            <div class="mt-16 flex items-center justify-between border-t border-border pt-8 pb-20">
+                                <div class="text-sm text-muted-foreground font-bold">
+                                    Showing <span class="text-foreground">{{ min(($page - 1) * $settings['search_limit'] + 1, $totalResults) }}</span>
+                                    to <span class="text-foreground">{{ min($page * $settings['search_limit'], $totalResults) }}</span>
+                                    of <span class="text-foreground">{{ $totalResults }}</span>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <button wire:click="prevPage" @if($page === 1) disabled @endif class="h-10 px-4 border border-input rounded-md text-xs font-black uppercase tracking-widest transition-all hover:bg-accent disabled:opacity-30 disabled:hover:bg-transparent">Previous</button>
+                                    <div class="h-10 px-4 bg-accent/50 rounded-md flex items-center justify-center text-xs font-black">{{ $page }} / {{ ceil($totalResults / $settings['search_limit']) }}</div>
+                                    <button wire:click="nextPage" @if($page * $settings['search_limit'] >= $totalResults) disabled @endif class="h-10 px-4 border border-input rounded-md text-xs font-black uppercase tracking-widest transition-all hover:bg-accent disabled:opacity-30 disabled:hover:bg-transparent">Next</button>
+                                </div>
+                            </div>
+                        @endif
                     @endif
 
-                    <div class="mb-10 flex items-end justify-between">
-                        <div>
-                            <h2 class="text-3xl font-black tracking-tight mb-2">
-                                @if($tab === 'installed') Installed Applications @else {{ (empty($search) || strlen($search) < 3) ? 'Popular Software' : 'Search Results' }} @endif
-                            </h2>
-                            @if($tab === 'explore' && !empty($search) && strlen($search) < 3)
-                                <p class="text-sm text-cachy font-bold italic tracking-wide">Enter at least 3 characters for a global search...</p>
-                            @else
-                                <p class="text-xs text-muted-foreground font-bold uppercase tracking-widest">Found {{ $totalResults }} packages</p>
-                            @endif
-                        </div>
-                    </div>
-
-                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                        @forelse($packages as $pkg)
-                            <x-store.package-card :$pkg :$pendingInstallations wire:key="pkg-{{ $pkg['name'] }}-{{ $loop->index }}" />
-                        @empty
-                            <div class="col-span-full py-32 text-center">
-                                <h3 class="text-xl font-bold text-muted-foreground">No applications found.</h3>
-                                <p class="text-sm text-slate-500 mt-2">Try a different search term or check your filters.</p>
-                            </div>
-                        @endforelse
-                    </div>
-
-                    <!-- Pagination Controls -->
-                    @if($totalResults > $settings['search_limit'])
-                        <div class="mt-16 flex items-center justify-between border-t border-border pt-8 pb-20">
-                            <div class="text-sm text-muted-foreground font-bold">
-                                Showing <span class="text-foreground">{{ min(($page - 1) * $settings['search_limit'] + 1, $totalResults) }}</span> to <span class="text-foreground">{{ min($page * $settings['search_limit'], $totalResults) }}</span> of <span class="text-foreground">{{ $totalResults }}</span> results
-                            </div>
-                            <div class="flex items-center gap-2">
-                                <button wire:click="prevPage" @if($page === 1) disabled @endif class="h-10 px-4 border border-input rounded-md text-xs font-black uppercase tracking-widest transition-all hover:bg-accent disabled:opacity-30 disabled:hover:bg-transparent">Previous</button>
-                                <div class="h-10 px-4 bg-accent/50 rounded-md flex items-center justify-center text-xs font-black">{{ $page }} / {{ ceil($totalResults / $settings['search_limit']) }}</div>
-                                <button wire:click="nextPage" @if($page * $settings['search_limit'] >= $totalResults) disabled @endif class="h-10 px-4 border border-input rounded-md text-xs font-black uppercase tracking-widest transition-all hover:bg-accent disabled:opacity-30 disabled:hover:bg-transparent">Next</button>
-                            </div>
-                        </div>
-                    @endif
                 </div>
             </div>
         @elseif($tab === 'appimages')

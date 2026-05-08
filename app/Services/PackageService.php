@@ -115,14 +115,15 @@ class PackageService
                     $version = $matches[3];
                     
                     $data[] = [
-                        'repo' => $repo,
-                        'name' => $name,
-                        'version' => $version,
-                        'is_aur' => strtolower($repo) === 'aur',
-                        'is_flatpak' => false,
-                        'installed' => in_array($name, $installedNames),
+                        'repo'        => $repo,
+                        'name'        => $name,
+                        'version'     => $version,
+                        'is_aur'      => strtolower($repo) === 'aur',
+                        'is_flatpak'  => false,
+                        'installed'   => in_array($name, $installedNames),
                         'description' => isset($lines[$i+1]) ? trim($lines[$i+1]) : '',
-                        'icon_url' => $this->getIcon($name, false),
+                        'icon_url'    => $this->getIcon($name, false),
+                        'screenshots' => $this->getScreenshots($name, false), // fast: local mapping only, no API call
                     ];
                     $i++; 
                 }
@@ -144,36 +145,50 @@ class PackageService
      */
     public function searchFlatpak(string $query): array
     {
-        return Cache::remember("flatpak_search_" . md5($query), 300, function () use ($query) {
+        $cliResults = Cache::remember("flatpak_search_" . md5($query), 300, function () use ($query) {
             $result = Process::run("flatpak search --columns=name,application,version,description " . escapeshellarg($query));
-            
+
             if ($result->failed()) return [];
 
             $lines = explode("\n", trim($result->output()));
             $packages = [];
-            
+
             $installed = $this->getInstalledFlatpaks();
             $installedIds = array_column($installed, 'name');
 
             foreach ($lines as $line) {
                 $parts = explode("\t", $line);
                 if (count($parts) >= 4) {
+                    $appId = trim($parts[1]);
                     $packages[] = [
-                        'repo' => 'flathub',
-                        'name' => trim($parts[1]), // Use Application ID as name for flatpaks
+                        'repo'         => 'flathub',
+                        'name'         => $appId,
                         'display_name' => trim($parts[0]),
-                        'version' => trim($parts[2]),
-                        'is_aur' => false,
-                        'is_flatpak' => true,
-                        'installed' => in_array(trim($parts[1]), $installedIds),
-                        'description' => trim($parts[3]),
-                        'icon_url' => $this->getIcon(trim($parts[1]), true),
+                        'version'      => trim($parts[2]),
+                        'is_aur'       => false,
+                        'is_flatpak'   => true,
+                        'installed'    => in_array($appId, $installedIds),
+                        'description'  => trim($parts[3]),
+                        'icon_url'     => $this->getIcon($appId, true),
                     ];
                 }
             }
-
             return $packages;
         });
+
+        // Mescla com resultados da API Flathub (suporta busca por display name)
+        $apiResults = $this->searchFlathubApi($query);
+
+        // Deduplica por app ID
+        $merged = $cliResults;
+        $existingIds = array_column($cliResults, 'name');
+        foreach ($apiResults as $pkg) {
+            if (!in_array($pkg['name'], $existingIds)) {
+                $merged[] = $pkg;
+            }
+        }
+
+        return $merged;
     }
 
     /**
@@ -389,11 +404,40 @@ class PackageService
         
         if (!$id) {
             $mapping = [
-                'discord' => 'com.discordapp.Discord',
-                'spotify' => 'com.spotify.Client',
-                'steam' => 'com.valvesoftware.Steam',
-                'vlc' => 'org.videolan.VLC',
-                'obs-studio' => 'com.obsproject.Studio',
+                // Comunicação
+                'discord'                  => 'com.discordapp.Discord',
+                'discord-canary'           => 'com.discordapp.DiscordCanary',
+                'telegram-desktop'         => 'org.telegram.desktop',
+                // Música & Vídeo
+                'spotify'                  => 'com.spotify.Client',
+                'vlc'                      => 'org.videolan.VLC',
+                'obs-studio'               => 'com.obsproject.Studio',
+                'kdenlive'                 => 'org.kde.kdenlive',
+                'mpv'                      => 'io.mpv.Mpv',
+                // Gaming
+                'steam'                    => 'com.valvesoftware.Steam',
+                'heroic'                   => 'com.heroicgameslauncher.hgl',
+                'lutris'                   => 'net.lutris.Lutris',
+                // Browsers
+                'brave-bin'                => 'com.brave.Browser',
+                'brave'                    => 'com.brave.Browser',
+                'firefox'                  => 'org.mozilla.firefox',
+                'chromium'                 => 'org.chromium.Chromium',
+                'google-chrome'            => 'com.google.Chrome',
+                // Dev
+                'visual-studio-code-bin'   => 'com.visualstudio.code',
+                'vscode'                   => 'com.visualstudio.code',
+                'code'                     => 'com.visualstudio.code',
+                'jetbrains-toolbox'        => 'com.jetbrains.Toolbox',
+                // Criação
+                'gimp'                     => 'org.gimp.GIMP',
+                'inkscape'                 => 'org.inkscape.Inkscape',
+                'blender'                  => 'org.blender.Blender',
+                'krita'                    => 'org.kde.krita',
+                // Produtividade
+                'libreoffice-fresh'        => 'org.libreoffice.LibreOffice',
+                'libreoffice-still'        => 'org.libreoffice.LibreOffice',
+                'thunderbird'              => 'org.mozilla.Thunderbird',
             ];
             $id = $mapping[strtolower($name)] ?? null;
         }
@@ -402,19 +446,145 @@ class PackageService
 
         return Cache::remember("pkg_screenshots_" . $id, 86400, function () use ($id) {
             try {
-                $res = Process::run("curl -s https://flathub.org/api/v2/appstream/" . escapeshellarg($id));
+                $res = Process::run("curl -s --max-time 10 https://flathub.org/api/v2/appstream/" . escapeshellarg($id));
                 if ($res->failed()) return [];
-                
+
                 $data = json_decode($res->output(), true);
                 if (empty($data['screenshots'])) return [];
 
                 $screens = [];
                 foreach (array_slice($data['screenshots'], 0, 3) as $s) {
-                    if (isset($s['sizes'][0]['src'])) {
-                        $screens[] = $s['sizes'][0]['src'];
+                    $src = null;
+
+                    // Formato 1: sizes[].src  (mais comum)
+                    if (!empty($s['sizes'])) {
+                        foreach ($s['sizes'] as $size) {
+                            if (!empty($size['src'])) { $src = $size['src']; break; }
+                        }
                     }
+
+                    // Formato 2: thumbnails[].url
+                    if (!$src && !empty($s['thumbnails'])) {
+                        foreach ($s['thumbnails'] as $thumb) {
+                            if (!empty($thumb['url'])) { $src = $thumb['url']; break; }
+                        }
+                    }
+
+                    // Formato 3: url direta no objeto
+                    if (!$src && !empty($s['url'])) {
+                        $src = $s['url'];
+                    }
+
+                    if ($src) $screens[] = $src;
                 }
                 return $screens;
+            } catch (\Exception $e) {
+                return [];
+            }
+        });
+    }
+
+    /**
+     * Extrai um nome legível de um App ID (ex: page.codeberg.M23Snezhok.Vinyl → Vinyl)
+     */
+    private function humanReadableName(string $appId): string
+    {
+        $parts = explode('.', $appId);
+        $last = end($parts);
+        // CamelCase → palavras separadas (ex: JellyfinPlayer → Jellyfin Player)
+        return trim(preg_replace('/([A-Z])/', ' $1', $last));
+    }
+
+    /**
+     * Busca detalhes de um flatpak via Flathub API (funciona para qualquer app, instalado ou não)
+     */
+    private function getFlathubApiDetails(string $appId): ?array
+    {
+        $cacheKey = "flathub_api_{$appId}";
+        return Cache::remember($cacheKey, 86400, function () use ($appId) {
+            try {
+                $res = Process::run("curl -s --max-time 10 https://flathub.org/api/v2/appstream/" . escapeshellarg($appId));
+                if ($res->failed()) return null;
+
+                $data = json_decode($res->output(), true);
+                if (empty($data) || empty($data['id'])) return null;
+
+                // Extrai screenshots com parsing resiliente
+                $screenshots = [];
+                foreach (array_slice($data['screenshots'] ?? [], 0, 3) as $s) {
+                    $src = null;
+                    if (!empty($s['sizes'])) {
+                        foreach ($s['sizes'] as $size) {
+                            if (!empty($size['src'])) { $src = $size['src']; break; }
+                        }
+                    }
+                    if (!$src && !empty($s['thumbnails'])) {
+                        foreach ($s['thumbnails'] as $t) {
+                            if (!empty($t['url'])) { $src = $t['url']; break; }
+                        }
+                    }
+                    if (!$src && !empty($s['url'])) $src = $s['url'];
+                    if ($src) $screenshots[] = $src;
+                }
+
+                // Versão do release mais recente
+                $version = 'Unknown';
+                if (!empty($data['releases'][0]['version'])) {
+                    $version = $data['releases'][0]['version'];
+                }
+
+                return [
+                    'Name'          => $data['id'],
+                    'display_name'  => $data['name'] ?? $this->humanReadableName($appId),
+                    'Description'   => strip_tags($data['description'] ?? $data['summary'] ?? ''),
+                    'Version'       => $version,
+                    'Licenses'      => $data['project_license'] ?? 'Unknown',
+                    'Architecture'  => 'x86_64',
+                    'Repository'    => 'Flathub',
+                    'Maintainer'    => $data['developer_name'] ?? $data['project_group'] ?? 'Unknown',
+                    'screenshots'   => $screenshots,
+                    'is_flatpak'    => true,
+                    'is_installed'  => false,
+                ];
+            } catch (\Exception $e) {
+                return null;
+            }
+        });
+    }
+
+    /**
+     * Busca flatpaks no Flathub via API HTTP (suporta display names como "Jellyfin Desktop")
+     */
+    public function searchFlathubApi(string $query): array
+    {
+        return Cache::remember("flathub_api_search_" . md5($query), 300, function () use ($query) {
+            try {
+                $res = Process::run("curl -s --max-time 10 'https://flathub.org/api/v2/search?query=" . urlencode($query) . "'");
+                if ($res->failed()) return [];
+
+                $data = json_decode($res->output(), true);
+                $hits = $data['hits'] ?? [];
+
+                $installed = $this->getInstalledFlatpaks();
+                $installedIds = array_column($installed, 'name');
+
+                $packages = [];
+                foreach (array_slice($hits, 0, 20) as $hit) {
+                    $appId = $hit['id'] ?? $hit['app_id'] ?? null;
+                    if (!$appId) continue;
+                    $packages[] = [
+                        'repo'         => 'flathub',
+                        'name'         => $appId,
+                        'display_name' => $hit['name'] ?? $this->humanReadableName($appId),
+                        'version'      => $hit['version'] ?? 'Unknown',
+                        'is_aur'       => false,
+                        'is_flatpak'   => true,
+                        'installed'    => in_array($appId, $installedIds),
+                        'description'  => $hit['summary'] ?? '',
+                        'icon_url'     => $this->getIcon($appId, true),
+                    ];
+                }
+                return $packages;
             } catch (\Exception $e) {
                 return [];
             }
@@ -465,42 +635,59 @@ class PackageService
         $details = [];
 
         if ($isFlatpak) {
-            // Tenta flatpak info (pacotes instalados)
-            $result = Process::run("LC_ALL=C flatpak info " . escapeshellarg($packageName));
+            // Fonte 1: Flathub API (funciona para qualquer app, instalado ou não)
+            $apiDetails = $this->getFlathubApiDetails($packageName);
 
-            // Fallback: flatpak remote-info (pacotes não instalados, da busca)
-            if ($result->failed()) {
-                $result = Process::run("LC_ALL=C flatpak remote-info flathub " . escapeshellarg($packageName));
-            }
-
-            if ($result->failed()) return null;
-
-            $output = $result->output();
-            $lines = explode("\n", trim($output));
-            $details = ['Name' => $packageName, 'is_flatpak' => true];
-
-            if (isset($lines[0]) && str_contains($lines[0], ' - ')) {
-                $parts = explode(' - ', $lines[0], 2);
-                $details['display_name'] = trim($parts[0]);
-                $details['Description'] = trim($parts[1]);
-            }
-
-            foreach ($lines as $line) {
-                if (str_contains($line, ':')) {
-                    $parts = explode(':', $line, 2);
-                    $key = trim($parts[0]);
-                    $val = trim($parts[1]);
-
-                    if ($key === 'Version') $details['Version'] = $val;
-                    if ($key === 'License') $details['Licenses'] = $val;
-                    if ($key === 'Installed') $details['Installed Size'] = $val;
-                    if ($key === 'Date') $details['Build Date'] = $val;
-                    if ($key === 'Arch') $details['Architecture'] = $val;
-                    if ($key === 'Origin') $details['Repository'] = $val;
-
-                    $details[$key] = $val;
+            // Fonte 2: flatpak CLI (complementa com info de instalação local)
+            $cliInstalled = false;
+            $installedSize = null;
+            $cliResult = Process::run("LC_ALL=C flatpak info " . escapeshellarg($packageName));
+            if ($cliResult->successful()) {
+                $cliInstalled = true;
+                foreach (explode("\n", $cliResult->output()) as $line) {
+                    $trimmed = trim($line);
+                    if (str_starts_with($trimmed, 'Installed Size:')) {
+                        $installedSize = trim(str_replace('Installed Size:', '', $trimmed));
+                    } elseif (str_starts_with($trimmed, 'Installed:') && !str_contains($trimmed, 'Installation:')) {
+                        $installedSize = trim(str_replace('Installed:', '', $trimmed));
+                    } elseif (str_starts_with($trimmed, 'Download Size:') || str_starts_with($trimmed, 'Download:')) {
+                        $downloadSize = trim(preg_replace('/^Download( Size)?:/', '', $trimmed));
+                    }
                 }
             }
+
+            if (!$apiDetails) {
+                // Último fallback: flatpak remote-info
+                $remoteResult = Process::run("LC_ALL=C flatpak remote-info flathub " . escapeshellarg($packageName));
+                if ($remoteResult->failed()) return null;
+
+                $lines = explode("\n", trim($remoteResult->output()));
+                $details = ['Name' => $packageName, 'is_flatpak' => true];
+                if (isset($lines[0]) && str_contains($lines[0], ' - ')) {
+                    $parts = explode(' - ', $lines[0], 2);
+                    $details['display_name'] = trim($parts[0]);
+                    $details['Description'] = trim($parts[1]);
+                }
+                foreach ($lines as $line) {
+                    if (str_contains($line, ':')) {
+                        $parts = explode(':', $line, 2);
+                        $key = trim($parts[0]);
+                        $val = trim($parts[1]);
+                        if ($key === 'Version') $details['Version'] = $val;
+                        if ($key === 'License') $details['Licenses'] = $val;
+                        if ($key === 'Installed') $details['Installed Size'] = $val;
+                        if ($key === 'Arch') $details['Architecture'] = $val;
+                        $details[$key] = $val;
+                    }
+                }
+                $details['screenshots'] = $this->getScreenshots($packageName, true);
+            } else {
+                $details = $apiDetails;
+                if ($installedSize) $details['Installed Size'] = $installedSize;
+                if (isset($downloadSize)) $details['Download Size'] = $downloadSize;
+            }
+
+            $details['is_installed'] = $cliInstalled;
         } else {
             $helper = $this->getHelper();
             $result = Process::run("LC_ALL=C $helper -Si " . escapeshellarg($packageName));

@@ -82,14 +82,19 @@
                 <p class="text-[17px] leading-relaxed font-medium text-slate-200">{{ $selectedPackage['Description'] ?? 'No description provided.' }}</p>
             </div>
 
-            <div class="grid grid-cols-2 gap-6">
-                <div class="p-6 rounded-xl bg-card shadow-sm">
+            <div class="grid grid-cols-3 gap-4">
+                <div class="p-5 rounded-xl bg-card shadow-sm">
                     <p class="text-[10px] font-black uppercase text-muted-foreground tracking-widest mb-2">Install Size</p>
-                    <p class="text-xl font-black">{{ $selectedPackage['Installed Size'] ?? 'Unknown' }}</p>
+                    <p class="text-base font-black">{{ $selectedPackage['Installed Size'] ?? 'N/A' }}</p>
                 </div>
-                <div class="p-6 rounded-xl bg-card shadow-sm">
+                <div class="p-5 rounded-xl bg-card shadow-sm">
+                    <p class="text-[10px] font-black uppercase text-muted-foreground tracking-widest mb-2">Download</p>
+                    <p class="text-base font-black">{{ $selectedPackage['Download Size'] ?? $selectedPackage['Download Siz'] ?? 'N/A' }}</p>
+                </div>
+                <div class="p-5 rounded-xl bg-card shadow-sm overflow-hidden">
                     <p class="text-[10px] font-black uppercase text-muted-foreground tracking-widest mb-2">License</p>
-                    <p class="text-xl font-black">{{ $selectedPackage['Licenses'] ?? 'Unknown' }}</p>
+                    @php $license = $selectedPackage['Licenses'] ?? $selectedPackage['License'] ?? 'Unknown'; @endphp
+                    <p class="text-sm font-black truncate" title="{{ $license }}">{{ $license }}</p>
                 </div>
             </div>
 
