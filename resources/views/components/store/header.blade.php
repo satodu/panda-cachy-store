@@ -30,7 +30,12 @@
                 @click.away="open = false"
                 class="h-10 w-48 flex items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-xs font-medium ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 hover:bg-accent/50 transition-colors"
             >
-                <span x-text="selected === 'all' ? 'All Repositories' : (selected === 'official' ? 'Official Repos' : 'AUR Repo')"></span>
+                <span x-text="{
+                    'all': 'All Repositories',
+                    'official': 'Official Repos',
+                    'aur': 'AUR Repo',
+                    'flatpak': 'Flatpak (Flathub)'
+                }[selected] || 'All Repositories'"></span>
                 <svg class="h-4 w-4 opacity-50" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
             </button>
 
@@ -49,6 +54,9 @@
                 <button @click="selected = 'official'; $wire.set('filterRepo', 'official'); open = false" class="relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-xs outline-none hover:bg-accent hover:text-accent-foreground transition-colors">Official Repos</button>
                 @if($settings['enable_aur'])
                     <button @click="selected = 'aur'; $wire.set('filterRepo', 'aur'); open = false" class="relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-xs outline-none hover:bg-accent hover:text-accent-foreground transition-colors">AUR Repo</button>
+                @endif
+                @if($settings['enable_flatpak'])
+                    <button @click="selected = 'flatpak'; $wire.set('filterRepo', 'flatpak'); open = false" class="relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-xs outline-none hover:bg-accent hover:text-accent-foreground transition-colors">Flatpak (Flathub)</button>
                 @endif
             </div>
         </div>

@@ -23,15 +23,82 @@
                             <div class="absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform {{ $settings['enable_aur'] ? 'translate-x-6' : '' }}"></div>
                         </button>
                     </div>
-                    <div class="pt-8 flex items-center justify-between opacity-40">
-                        <div class="space-y-1">
-                            <h4 class="text-[17px] font-black tracking-tight">Flatpak Integration</h4>
-                            <p class="text-sm text-muted-foreground leading-relaxed">Access Flathub's universal application ecosystem.</p>
+                    <div class="pt-8 space-y-6 border-t border-border">
+                        <div class="flex items-start justify-between">
+                            <div class="space-y-1">
+                                <h4 class="text-[17px] font-black tracking-tight">Flatpak Integration</h4>
+                                <p class="text-sm text-muted-foreground leading-relaxed">Access Flathub's universal application ecosystem.</p>
+                            </div>
+                            <button 
+                                wire:click="$set('settings.enable_flatpak', {{ !$settings['enable_flatpak'] ? 'true' : 'false' }})"
+                                class="w-12 h-6 rounded-full transition-all relative {{ $settings['enable_flatpak'] ? 'bg-cachy shadow-lg shadow-cachy/20' : 'bg-muted' }} shrink-0 mt-1"
+                            >
+                                <div class="absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform {{ $settings['enable_flatpak'] ? 'translate-x-6' : '' }}"></div>
+                            </button>
                         </div>
-                        <div class="w-12 h-6 rounded-full bg-muted relative cursor-not-allowed">
-                            <div class="absolute top-1 left-1 bg-slate-600 w-4 h-4 rounded-full"></div>
+
+                        @php
+                            $flatpakInstalled = \Illuminate\Support\Facades\Process::run('which flatpak')->successful();
+                            $flathubConfigured = $flatpakInstalled && \Illuminate\Support\Facades\Process::run('flatpak remotes | grep -q flathub')->successful();
+                        @endphp
+
+                        {{-- Status checklist --}}
+                        <div class="bg-muted/30 rounded-xl p-6 space-y-4">
+                            <p class="text-[11px] font-black uppercase tracking-widest text-muted-foreground mb-4">System Status</p>
+
+                            {{-- Flatpak binary --}}
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-3">
+                                    @if($flatpakInstalled)
+                                        <div class="w-6 h-6 rounded-full bg-green-500/15 flex items-center justify-center">
+                                            <svg class="w-3.5 h-3.5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>
+                                        </div>
+                                        <span class="text-sm font-semibold">Flatpak instalado</span>
+                                    @else
+                                        <div class="w-6 h-6 rounded-full bg-destructive/15 flex items-center justify-center">
+                                            <svg class="w-3.5 h-3.5 text-destructive" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 18L18 6M6 6l12 12"/></svg>
+                                        </div>
+                                        <span class="text-sm font-semibold text-muted-foreground">Flatpak não instalado</span>
+                                    @endif
+                                </div>
+                                @if(!$flatpakInstalled)
+                                    <button wire:click="installFlatpak" class="h-8 px-4 bg-cachy text-white text-[11px] font-black rounded-lg hover:bg-cachy/90 transition-all uppercase tracking-widest shadow-md">
+                                        Instalar
+                                    </button>
+                                @else
+                                    <span class="text-[10px] text-green-500 font-black uppercase tracking-widest">OK</span>
+                                @endif
+                            </div>
+
+                            {{-- Flathub remote --}}
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-3">
+                                    @if($flathubConfigured)
+                                        <div class="w-6 h-6 rounded-full bg-green-500/15 flex items-center justify-center">
+                                            <svg class="w-3.5 h-3.5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>
+                                        </div>
+                                        <span class="text-sm font-semibold">Flathub configurado</span>
+                                    @else
+                                        <div class="w-6 h-6 rounded-full bg-yellow-500/15 flex items-center justify-center">
+                                            <svg class="w-3.5 h-3.5 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+                                        </div>
+                                        <span class="text-sm font-semibold text-muted-foreground">Flathub remote não configurado</span>
+                                    @endif
+                                </div>
+                                @if(!$flathubConfigured)
+                                    <button 
+                                        wire:click="addFlathubRemote"
+                                        @if(!$flatpakInstalled) disabled @endif
+                                        class="h-8 px-4 bg-orange-500 text-white text-[11px] font-black rounded-lg hover:bg-orange-500/90 transition-all uppercase tracking-widest shadow-md disabled:opacity-40 disabled:cursor-not-allowed">
+                                        Adicionar
+                                    </button>
+                                @else
+                                    <span class="text-[10px] text-green-500 font-black uppercase tracking-widest">OK</span>
+                                @endif
+                            </div>
                         </div>
                     </div>
+
                 </div>
 
                 <div class="bg-card rounded-xl p-10 flex items-center justify-between shadow-md">

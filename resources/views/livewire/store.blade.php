@@ -23,6 +23,13 @@ new class extends Component
     public $confirmingAppImageDeletion = null; 
     public $confirmingPackageRemoval = null; 
     
+    // Terminal Integrado
+    public $isTerminalOpen = false;
+    public $terminalOutput = "";
+    public $activeTerminalLog = "";
+    public $activeTerminalPid = null;
+    public $activePackageName = "";
+    public $terminalDone = false; // true quando o processo termina — aciona countdown no Alpine
     // Paginação
     public $page = 1;
     public $totalResults = 0;
@@ -55,11 +62,38 @@ new class extends Component
         $this->checkPendingInstallations();
     }
 
+    protected function t(string $key): string
+    {
+        $lang = strtolower(substr(getenv('LANG') ?: getenv('LANGUAGE') ?: 'en', 0, 2));
+        $isPt = $lang === 'pt';
+
+        $translations = [
+            'installing'       => $isPt ? 'Instalando'       : 'Installing',
+            'removing'         => $isPt ? 'Removendo'        : 'Removing',
+            'install_start'    => $isPt ? 'Operação de instalação iniciada para %s...' : 'Installation of %s started...',
+            'remove_start'     => $isPt ? 'Operação de remoção iniciada para %s...'    : 'Removal of %s started...',
+            'install_done'     => $isPt ? 'Operação de instalação de %s concluída com sucesso.' : 'Installation of %s completed successfully.',
+            'remove_done'      => $isPt ? 'Operação de remoção de %s concluída com sucesso.'    : 'Removal of %s completed successfully.',
+            'op_done_generic'  => $isPt ? 'Operação com %s concluída. Verifique o console.'     : 'Operation with %s completed. Check the console.',
+            'install_fail'     => $isPt ? 'Falha ao iniciar a instalação de %s.'  : 'Failed to start installation for %s.',
+            'remove_fail'      => $isPt ? 'Falha ao iniciar a remoção de %s.'     : 'Failed to start removal for %s.',
+            'done'             => $isPt ? 'Concluído'  : 'Done',
+            'error'            => $isPt ? 'Erro'        : 'Error',
+            'saved'            => $isPt ? 'Salvo'       : 'Saved',
+            'settings_saved'   => $isPt ? 'Configurações salvas com sucesso.' : 'Settings updated successfully.',
+            'refreshed'        => $isPt ? 'Atualizado'  : 'Refreshed',
+            'refreshed_msg'    => $isPt ? 'Dados da loja atualizados.' : 'Store data has been updated.',
+            'update_started'   => $isPt ? 'Atualização do sistema iniciada no terminal.' : 'Running update process in terminal.',
+        ];
+
+        return $translations[$key] ?? $key;
+    }
+
     public function runSystemUpdate()
     {
         $service = new PackageService();
         $service->runCachyUpdate();
-        $this->showNotification("System Update", "Running update process in terminal...");
+        $this->showNotification($this->t('refreshed'), $this->t('update_started'));
     }
 
     public function checkPendingInstallations()
@@ -75,23 +109,47 @@ new class extends Component
             $pid = $data['pid'] ?? null;
             if ($pid && !file_exists("/proc/{$pid}")) {
                 // O terminal foi fechado ou o processo morreu
-                $this->checkIfFinishedManually($name, $data['type']);
+                $this->checkIfFinishedManually($name, $data);
             }
         }
     }
 
-    protected function checkIfFinishedManually($name, $type)
+    protected function checkIfFinishedManually($name, $data)
     {
-        // Verifica se o pacote está instalado no momento
-        $res = \Illuminate\Support\Facades\Process::run("pacman -Qq " . escapeshellarg($name));
-        $isCurrentlyInstalled = $res->successful();
-        
-        $expectedInstalled = ($type === 'install');
-        
-        if ($isCurrentlyInstalled === $expectedInstalled) {
-            $this->finalizeOperation($name, "Concluído", "Operação com {$name} finalizada com sucesso.");
+        $type = $data['type'] ?? 'install';
+        $isFlatpak = $data['is_flatpak'] ?? false;
+
+        if ($isFlatpak) {
+            $res = \Illuminate\Support\Facades\Process::run("flatpak info " . escapeshellarg($name));
         } else {
-            $this->finalizeOperation($name, "Interrompido", "A instalação/remoção de {$name} foi cancelada ou o terminal foi fechado.", 'error');
+            $res = \Illuminate\Support\Facades\Process::run("pacman -Qq " . escapeshellarg($name));
+        }
+        
+        $isCurrentlyInstalled = $res->successful();
+        $success = ($type === 'remove') ? !$isCurrentlyInstalled : $isCurrentlyInstalled;
+        
+        if ($success) {
+            $msg = ($type === 'remove')
+                ? sprintf($this->t('remove_done'), $name)
+                : sprintf($this->t('install_done'), $name);
+            $this->finalizeOperation($name, $this->t('done'), $msg);
+        } else {
+            // Retry once
+            sleep(1);
+            $retry = $isFlatpak
+                ? \Illuminate\Support\Facades\Process::run("flatpak info " . escapeshellarg($name))
+                : \Illuminate\Support\Facades\Process::run("pacman -Qq " . escapeshellarg($name));
+            $isInstalledNow = $retry->successful();
+            $successRetry = ($type === 'remove') ? !$isInstalledNow : $isInstalledNow;
+
+            if ($successRetry) {
+                $msg = ($type === 'remove')
+                    ? sprintf($this->t('remove_done'), $name)
+                    : sprintf($this->t('install_done'), $name);
+                $this->finalizeOperation($name, $this->t('done'), $msg);
+            } else {
+                $this->finalizeOperation($name, $this->t('done'), sprintf($this->t('op_done_generic'), $name));
+            }
         }
     }
 
@@ -100,8 +158,13 @@ new class extends Component
         unset($this->pendingInstallations[$name]);
         \Illuminate\Support\Facades\Cache::forget("installing_{$name}");
         
-        $service = new PackageService();
-        $service->clearCache();
+        // Limpar cache de pacote sem bloquear
+        try {
+            $service = new PackageService();
+            $service->clearCache();
+        } catch (\Throwable $e) {
+            // Ignora silenciosamente
+        }
         
         $this->loadData();
         
@@ -112,6 +175,7 @@ new class extends Component
         $this->selectedPackage = null;
         $this->confirmingAppImageDeletion = null;
         $this->confirmingPackageRemoval = null;
+        $this->confirmingPackageIsFlatpak = false;
     }
 
     public function loadSettings()
@@ -124,16 +188,47 @@ new class extends Component
     public function saveSettings()
     {
         Storage::put('settings.json', json_encode($this->settings));
-        $this->showNotification("Saved", "Settings updated successfully.");
+        $this->showNotification($this->t('saved'), $this->t('settings_saved'));
         $this->loadData();
     }
 
-    public function showDetails($name, $isAur = false)
+    public function installFlatpak()
+    {
+        $logFile = storage_path('logs/flatpak_setup.log');
+        file_put_contents($logFile, "Instalando flatpak...\n");
+        $inner = "pacman -S --noconfirm flatpak >> " . escapeshellarg($logFile) . " 2>&1";
+        $cmd = "( pkexec sh -c " . escapeshellarg($inner)
+            . " || echo 'Autenticação cancelada.' >> " . escapeshellarg($logFile)
+            . " ; echo '__PROCESS_DONE__' >> " . escapeshellarg($logFile) . " ) &";
+        shell_exec($cmd);
+        $this->activeTerminalLog = $logFile;
+        $this->activePackageName = 'flatpak';
+        $this->isTerminalOpen = true;
+        $this->pendingInstallations['flatpak'] = ['type' => 'install', 'is_flatpak' => false, 'log' => $logFile];
+        $this->showNotification($this->t('installing'), 'Instalando Flatpak...');
+    }
+
+    public function addFlathubRemote()
+    {
+        $logFile = storage_path('logs/flatpak_setup.log');
+        file_put_contents($logFile, "Adicionando Flathub...\n");
+        $inner = "flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo >> " . escapeshellarg($logFile) . " 2>&1";
+        $cmd = "( " . $inner . " ; echo '__PROCESS_DONE__' >> " . escapeshellarg($logFile) . " ) &";
+        shell_exec($cmd);
+        $this->activeTerminalLog = $logFile;
+        $this->activePackageName = 'flathub-remote';
+        $this->isTerminalOpen = true;
+        $this->pendingInstallations['flathub-remote'] = ['type' => 'install', 'is_flatpak' => false, 'log' => $logFile];
+        $this->showNotification($this->t('installing'), 'Adicionando Flathub remote...');
+    }
+
+    public function showDetails($name, $isAur = false, $isFlatpak = false)
     {
         $service = new PackageService();
-        $this->selectedPackage = $service->getPackageDetails($name, $isAur);
+        $this->selectedPackage = $service->getPackageDetails($name, $isAur, $isFlatpak);
         if ($this->selectedPackage) {
             $this->selectedPackage['is_aur'] = $isAur;
+            $this->selectedPackage['is_flatpak'] = $isFlatpak;
         }
     }
 
@@ -173,7 +268,7 @@ new class extends Component
         $service = new PackageService();
         $service->clearCache();
         $this->loadData();
-        $this->showNotification("Refreshed", "Store data has been updated.");
+        $this->showNotification($this->t('refreshed'), $this->t('refreshed_msg'));
     }
 
     public function loadData()
@@ -209,8 +304,18 @@ new class extends Component
         $res = \Illuminate\Support\Facades\Process::run("pacman -Qq");
         $installedNames = $res->successful() ? explode("\n", trim($res->output())) : [];
 
+        $installedFlatpaks = [];
+        if ($this->settings['enable_flatpak'] && $service->commandExists('flatpak')) {
+            $resF = \Illuminate\Support\Facades\Process::run("flatpak list --columns=application");
+            $installedFlatpaks = $resF->successful() ? explode("\n", trim($resF->output())) : [];
+        }
+
         foreach ($this->packages as &$pkg) {
-            $pkg['installed'] = in_array($pkg['name'], $installedNames);
+            if ($pkg['is_flatpak'] ?? false) {
+                $pkg['installed'] = in_array($pkg['name'], $installedFlatpaks);
+            } else {
+                $pkg['installed'] = in_array($pkg['name'], $installedNames);
+            }
         }
         
         foreach ($this->systemPackages as &$pkg) {
@@ -233,6 +338,10 @@ new class extends Component
 
     public function updatedFilterRepo()
     {
+        // Na home (explore sem busca), filtro não tem efeito
+        if ($this->tab === 'explore' && empty($this->search)) return;
+        if ($this->tab === 'featured') return;
+
         $this->page = 1;
         $this->loadData();
     }
@@ -292,14 +401,20 @@ new class extends Component
         $service = new PackageService();
         $allInstalled = $service->getInstalledPackages();
         
-        $this->packages = array_map(function($pkg) {
+        $this->packages = array_map(function($pkg) use ($service) {
+            $isFlatpak = $pkg['is_flatpak'] ?? false;
+            $isAur = $pkg['is_aur'] ?? false;
+            
             return [
-                'repo' => $pkg['is_aur'] ? 'aur' : 'official',
+                'repo' => $isFlatpak ? 'flathub' : ($isAur ? 'aur' : 'official'),
                 'name' => $pkg['name'],
+                'display_name' => $pkg['display_name'] ?? null,
                 'version' => $pkg['version'],
-                'is_aur' => $pkg['is_aur'],
+                'is_aur' => $isAur,
+                'is_flatpak' => $isFlatpak,
                 'installed' => true,
-                'description' => 'Package installed on your system.',
+                'description' => $pkg['description'] ?? 'Package installed on your system.',
+                'icon_url' => $service->getIcon($pkg['name'], $isFlatpak),
             ];
         }, $allInstalled);
     }
@@ -307,11 +422,19 @@ new class extends Component
     public function searchPackages()
     {
         $service = new PackageService();
-        $this->packages = $service->search($this->search);
+        $this->packages = $service->search($this->search, $this->settings['enable_flatpak'] ?? false);
     }
 
     protected function applyFiltersAndSorting()
     {
+        // Home = explore sem busca ativa — nunca filtrar
+        $isHome = ($this->tab === 'explore' && empty($this->search))
+               || $this->tab === 'featured';
+
+        if ($isHome) {
+            return;
+        }
+
         if (!empty($this->search)) {
             $this->packages = array_filter($this->packages, function($pkg) {
                 return str_contains(strtolower($pkg['name']), strtolower($this->search));
@@ -324,7 +447,10 @@ new class extends Component
                     return isset($pkg['is_aur']) && $pkg['is_aur'];
                 }
                 if ($this->filterRepo === 'official') {
-                    return (!isset($pkg['is_aur']) || !$pkg['is_aur']);
+                    return (!isset($pkg['is_aur']) || !$pkg['is_aur']) && (!isset($pkg['is_flatpak']) || !$pkg['is_flatpak']);
+                }
+                if ($this->filterRepo === 'flatpak') {
+                    return isset($pkg['is_flatpak']) && $pkg['is_flatpak'];
                 }
                 return true;
             });
@@ -342,56 +468,183 @@ new class extends Component
         $this->packages = array_slice(array_values($this->packages), $offset, $limit);
     }
 
-    public function install($name, $isAur = false)
+    public function install($name, $isAur = false, $isFlatpak = false)
     {
         $service = new PackageService();
-        $pid = $service->install($name, $isAur);
+        
+        // Criar arquivo de log temporário
+        $logFile = storage_path("logs/install_{$name}.log");
+        if (!file_exists(dirname($logFile))) mkdir(dirname($logFile), 0777, true);
+        file_put_contents($logFile, "Starting installation of {$name}...\n");
+
+        $pid = $service->runInBackground($name, $isAur, $isFlatpak, $logFile);
         
         if ($pid) {
+            $this->activeTerminalLog = $logFile;
+            $this->activeTerminalPid = $pid;
+            $this->activePackageName = $name;
+            $this->isTerminalOpen = true;
+            $this->terminalDone = false;
+            $this->terminalOutput = "Waiting for authentication...";
+
             $this->pendingInstallations[$name] = [
                 'pid' => $pid,
-                'type' => 'install'
+                'type' => 'install',
+                'is_flatpak' => $isFlatpak,
+                'log' => $logFile
             ];
             
-            $this->showNotification("Installing", "Building $name in terminal...");
+            \Illuminate\Support\Facades\Cache::put("installing_{$name}", true, 600);
+            $this->showNotification($this->t('installing'), sprintf($this->t('install_start'), $name));
         } else {
-            $this->showNotification("Error", "Failed to start installation for $name.", 'error');
+            $this->showNotification($this->t('error'), sprintf($this->t('install_fail'), $name), 'error');
         }
 
         $this->loadData();
     }
 
-    public function remove($name)
+    public function pollTerminal()
+    {
+        if (!$this->isTerminalOpen || !$this->activeTerminalLog) return;
+
+        if (file_exists($this->activeTerminalLog)) {
+            $rawOutput = file_get_contents($this->activeTerminalLog) ?: '';
+            $sentinel = '__PROCESS_DONE__';
+
+            if (str_contains($rawOutput, $sentinel)) {
+                // Remover a linha do sentinel da saida visível
+                $cleanOutput = str_replace("\n" . $sentinel, '', $rawOutput);
+                $this->terminalOutput = $cleanOutput . "\n\n[✅ Processo finalizado]"; 
+                
+                // Capturar dados ANTES de qualquer limpeza
+                $pendingData = $this->pendingInstallations[$this->activePackageName] ?? null;
+                $packageName = $this->activePackageName;
+                $this->activeTerminalPid = null;
+
+                if ($pendingData) {
+                    $this->checkIfFinishedManually($packageName, $pendingData);
+                }
+
+                // Dispara o countdown de auto-close via propriedade Livewire
+                $this->terminalDone = true;
+                $this->dispatch('content-updated');
+                return;
+            }
+
+
+            // Processo ainda em andamento - mostar as ultimas 50 linhas
+            $lines = explode("\n", $rawOutput);
+            $this->terminalOutput = implode("\n", array_slice($lines, -50));
+        }
+
+        $this->dispatch('content-updated');
+    }
+
+    public function closeTerminal()
+    {
+        $this->isTerminalOpen = false;
+        $this->terminalDone = false;
+        if ($this->activeTerminalLog && file_exists($this->activeTerminalLog)) {
+            unlink($this->activeTerminalLog);
+        }
+        $this->activeTerminalLog = "";
+        $this->activeTerminalPid = null;
+        $this->terminalOutput = "";
+    }
+
+    public $confirmingPackageIsFlatpak = false;
+
+    public function remove($name, $isFlatpak = false)
     {
         $this->confirmingPackageRemoval = $name;
+        $this->confirmingPackageIsFlatpak = $isFlatpak;
     }
 
     public function cancelPackageRemoval()
     {
         $this->confirmingPackageRemoval = null;
+        $this->confirmingPackageIsFlatpak = false;
     }
 
     public function deletePackageConfirmed()
     {
         $name = $this->confirmingPackageRemoval;
+        $isFlatpak = $this->confirmingPackageIsFlatpak;
+        
         if (!$name) return;
 
+        // Fechar o modal IMEDIATAMENTE — o terminal vai substituí-lo
+        $this->confirmingPackageRemoval = null;
+        $this->confirmingPackageIsFlatpak = false;
+
         $service = new PackageService();
-        $pid = $service->remove($name);
+        
+        // Log para remoção
+        $logFile = storage_path("logs/remove_{$name}.log");
+        if (!file_exists(dirname($logFile))) mkdir(dirname($logFile), 0777, true);
+        file_put_contents($logFile, "Iniciando remoção de {$name}...\n");
+
+        $pid = $this->runRemoveInBackground($name, $isFlatpak, $logFile);
         
         if ($pid) {
+            $this->activeTerminalLog = $logFile;
+            $this->activeTerminalPid = $pid;
+            $this->activePackageName = $name;
+            $this->isTerminalOpen = true;
+            $this->terminalDone = false;
+
             $this->pendingInstallations[$name] = [
                 'pid' => $pid,
-                'type' => 'remove'
+                'type' => 'remove',
+                'is_flatpak' => $isFlatpak,
+                'log' => $logFile
             ];
-            $this->showNotification("Removing", "Uninstalling $name in terminal...");
+            $this->showNotification($this->t('removing'), sprintf($this->t('remove_start'), $name));
         } else {
-            $this->showNotification("Error", "Failed to remove $name.", 'error');
+            $this->showNotification($this->t('error'), sprintf($this->t('remove_fail'), $name), 'error');
+        }
+        // loadData() removido aqui — o pollTerminal chama finalizeOperation → loadData() quando terminar
+    }
+
+    protected function getFlatpakInstallation(string $name): string
+    {
+        $res = \Illuminate\Support\Facades\Process::run(
+            "flatpak list --columns=application,installation | grep -F '" . str_replace("'", "'\\''", $name) . "' | awk '{print \$NF}'"
+        );
+        $scope = trim($res->output());
+        return in_array($scope, ['user', 'system']) ? $scope : 'system';
+    }
+
+    protected function buildSentinelCommand(string $baseCmd, string $logFile): string
+    {
+        $sentinel = '__PROCESS_DONE__';
+        // Append sentinel to log when command finishes (success or fail)
+        return "( $baseCmd >> " . escapeshellarg($logFile) . " 2>&1 ; echo " . escapeshellarg($sentinel) . " >> " . escapeshellarg($logFile) . " ) &";
+    }
+
+    protected function runRemoveInBackground($name, $isFlatpak, $logFile)
+    {
+        file_put_contents($logFile, "Iniciando remoção de {$name}...\n");
+        
+        if ($isFlatpak) {
+            $scope = $this->getFlatpakInstallation($name);
+            if ($scope === 'user') {
+                $cmd = "flatpak uninstall -y --user " . escapeshellarg($name);
+                // Apps de usuário: sem pkexec, sentinela no wrapper externo
+                $fullCmd = "( $cmd >> " . escapeshellarg($logFile) . " 2>&1 ; echo '__PROCESS_DONE__' >> " . escapeshellarg($logFile) . " ) &";
+            } else {
+                $cmd = "flatpak uninstall -y --system " . escapeshellarg($name);
+                // Sentinela FORA do pkexec: escrito mesmo se o usuário cancelar
+                $fullCmd = "( pkexec sh -c " . escapeshellarg($cmd . " >> " . escapeshellarg($logFile) . " 2>&1") . " || echo 'Autenticação cancelada ou falhou.' >> " . escapeshellarg($logFile) . " ; echo '__PROCESS_DONE__' >> " . escapeshellarg($logFile) . " ) &";
+            }
+        } else {
+            $cmd = "pacman -Rs --noconfirm " . escapeshellarg($name);
+            // Sentinela FORA do pkexec
+            $fullCmd = "( pkexec sh -c " . escapeshellarg($cmd . " >> " . escapeshellarg($logFile) . " 2>&1") . " || echo 'Autenticação cancelada ou falhou.' >> " . escapeshellarg($logFile) . " ; echo '__PROCESS_DONE__' >> " . escapeshellarg($logFile) . " ) &";
         }
 
-        // Limpa o estado APÓS a execução
-        $this->confirmingPackageRemoval = null;
-        $this->loadData();
+        shell_exec($fullCmd);
+        return 1;
     }
 
     public function showNotification($title, $message, $type = 'success')
@@ -403,6 +656,15 @@ new class extends Component
         ];
         
         $this->dispatch('notify');
+
+        // Notificação do sistema via NativePHP
+        try {
+            \Native\Laravel\Facades\Notification::title($title)
+                ->message($message)
+                ->show();
+        } catch (\Throwable $e) {
+            // NativePHP pode não estar disponível
+        }
     }
 
     public function loadAppImages()
@@ -656,10 +918,115 @@ new class extends Component
                 </div>
                 
                 <div class="p-6 bg-muted/30 flex items-center gap-3">
-                    <button wire:click="cancelPackageRemoval" class="flex-1 h-12 text-sm font-bold rounded-xl hover:bg-accent transition-colors">Cancel</button>
-                    <button wire:click="deletePackageConfirmed" class="flex-1 h-12 bg-destructive text-destructive-foreground text-sm font-black rounded-xl hover:bg-destructive/90 shadow-lg shadow-destructive/20 transition-all">Uninstall</button>
+                    <button wire:click="cancelPackageRemoval" wire:loading.attr="disabled" class="flex-1 h-12 text-sm font-bold rounded-xl hover:bg-accent transition-colors disabled:opacity-50">Cancel</button>
+                    <button 
+                        wire:click="deletePackageConfirmed" 
+                        wire:loading.attr="disabled"
+                        wire:target="deletePackageConfirmed"
+                        class="flex-1 h-12 bg-destructive text-destructive-foreground text-sm font-black rounded-xl hover:bg-destructive/90 shadow-lg shadow-destructive/20 transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                        <svg wire:loading wire:target="deletePackageConfirmed" class="animate-spin w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                        </svg>
+                        <span wire:loading.remove wire:target="deletePackageConfirmed">Uninstall</span>
+                        <span wire:loading wire:target="deletePackageConfirmed">Processando...</span>
+                    </button>
                 </div>
             </div>
         </div>
     @endif
+
+    <!-- Terminal Sheet -->
+    <div 
+        x-data="{
+            show: @entangle('isTerminalOpen'),
+            countdown: 0,
+            countdownTimer: null,
+            startCountdown() {
+                if (this.countdown > 0) return; // já está rodando
+                this.countdown = 5;
+                clearInterval(this.countdownTimer);
+                this.countdownTimer = setInterval(() => {
+                    this.countdown--;
+                    if (this.countdown <= 0) {
+                        clearInterval(this.countdownTimer);
+                        this.$wire.closeTerminal();
+                    }
+                }, 1000);
+            },
+            cancelCountdown() {
+                clearInterval(this.countdownTimer);
+                this.countdown = 0;
+            }
+        }"
+        x-init="
+            if (@js($terminalDone)) startCountdown();
+            $wire.$watch('terminalDone', val => { if(val) startCountdown(); });
+        "
+        x-show="show"
+        x-transition:enter="transition ease-out duration-300"
+        x-transition:enter-start="translate-y-full"
+        x-transition:enter-end="translate-y-0"
+        x-transition:leave="transition ease-in duration-200"
+        x-transition:leave-start="translate-y-0"
+        x-transition:leave-end="translate-y-full"
+        class="fixed bottom-0 left-0 right-0 z-[200] h-[40vh] bg-[#0c0c0c] border-t border-white/10 shadow-[0_-20px_50px_rgba(0,0,0,0.5)] flex flex-col"
+        wire:poll.1s="pollTerminal"
+    >
+        <div class="flex items-center justify-between px-6 py-3 bg-white/5 border-b border-white/5">
+            <div class="flex items-center gap-3">
+                <div class="flex gap-1.5">
+                    <div class="w-3 h-3 rounded-full bg-red-500/50"></div>
+                    <div class="w-3 h-3 rounded-full bg-yellow-500/50"></div>
+                    <div class="w-3 h-3 rounded-full bg-green-500/50"></div>
+                </div>
+                <span class="text-[11px] font-black uppercase tracking-widest text-muted-foreground ml-2">Integrated Console — {{ $activePackageName }}</span>
+            </div>
+            <div class="flex items-center gap-4">
+                @if(!$activeTerminalPid)
+                    {{-- Close button com countdown --}}
+                    <div class="relative flex items-center justify-center">
+                        {{-- SVG circular countdown --}}
+                        <svg x-show="countdown > 0" class="absolute w-12 h-12 -rotate-90" viewBox="0 0 36 36">
+                            <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="2"/>
+                            <circle 
+                                cx="18" cy="18" r="15" fill="none" 
+                                stroke="hsl(var(--cachy))" stroke-width="2"
+                                stroke-dasharray="94.25"
+                                :stroke-dashoffset="94.25 - (94.25 * countdown / 5)"
+                                style="transition: stroke-dashoffset 1s linear;"
+                            />
+                        </svg>
+                        <button 
+                            wire:click="closeTerminal" 
+                            @click="cancelCountdown()"
+                            class="relative text-[10px] font-black uppercase tracking-widest bg-cachy px-4 py-1.5 rounded hover:bg-cachy/90 transition-all">
+                            <span x-show="countdown <= 0">Close Console</span>
+                            <span x-show="countdown > 0" x-text="'Close (' + countdown + 's)'"></span>
+                        </button>
+                    </div>
+                @else
+                    <div class="flex items-center gap-2">
+                        <div class="w-2 h-2 bg-cachy rounded-full animate-pulse"></div>
+                        <span class="text-[10px] font-black uppercase tracking-widest text-cachy">Process Running</span>
+                    </div>
+                @endif
+            </div>
+        </div>
+        
+        <div 
+            x-ref="terminalBody"
+            class="flex-1 overflow-y-auto p-6 font-mono text-sm text-green-500/90 leading-relaxed no-scrollbar"
+            x-init="$watch('show', value => { if(value) { $nextTick(() => $refs.terminalBody.scrollTop = $refs.terminalBody.scrollHeight) } })"
+            @content-updated.window="$nextTick(() => $refs.terminalBody.scrollTop = $refs.terminalBody.scrollHeight)"
+        >
+            <pre class="whitespace-pre-wrap">{{ $terminalOutput }}</pre>
+            @if($activeTerminalPid)
+                <div class="mt-4 flex items-center gap-2 italic text-muted-foreground animate-pulse">
+                    <span>></span>
+                    <span class="w-2 h-4 bg-muted-foreground"></span>
+                </div>
+            @endif
+        </div>
+    </div>
 </div>
